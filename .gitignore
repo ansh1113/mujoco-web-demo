@@ -1,0 +1,6 @@
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+# drop-in policies copied from diffusion-pick are large; commit them deliberately if you want them hosted
+models/dp_*.onnx

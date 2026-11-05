@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>MuJoCo in the Browser</title>
+  <meta name="description" content="MuJoCo physics running client-side via WebAssembly: a Unitree G1 with a push-recovery balance controller, and a Franka Panda pick-and-place driven by an ONNX policy.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='9' fill='%23ff5a36'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three/three.module.min.js" } }
+  </script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>MuJoCo in the browser</span>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Demos">
+      <button class="tab" role="tab" id="tab-balance" data-demo="balance" aria-controls="panel-balance" aria-selected="true">Humanoid balance</button>
+      <button class="tab" role="tab" id="tab-pick" data-demo="pick" aria-controls="panel-pick" aria-selected="false" tabindex="-1">Policy pick-and-place</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ───────────────────────── Tab 1: G1 balance ───────────────────────── -->
+    <section class="demo" id="panel-balance" role="tabpanel" aria-labelledby="tab-balance">
+      <div class="stage">
+        <div class="viewport" id="balance-view"></div>
+        <div class="hud">
+          <span class="chip" id="balance-status" data-state="loading">Loading…</span>
+          <span class="chip mono" id="balance-force" hidden>0 N</span>
+        </div>
+        <p class="hint"><span class="long">Drag the robot to push it · drag the background to orbit</span><span class="short">Drag robot to push · drag background to orbit</span></p>
+        <div class="loading" id="balance-loading"><div class="bar"><span></span></div><p>Loading MuJoCo…</p></div>
+      </div>
+      <aside class="panel">
+        <h1>Unitree G1 · standing balance</h1>
+        <p class="lede">The 29-DoF G1 from MuJoCo Menagerie, simulated at 500&nbsp;Hz by MuJoCo compiled to WebAssembly. A capture-point balance controller written in JavaScript keeps it upright while you shove it around.</p>
+        <div class="controls">
+          <button class="btn primary" id="balance-push" type="button">Random push</button>
+          <button class="btn" id="balance-reset" type="button">Reset</button>
+          <label class="switch">
+            <input type="checkbox" id="balance-toggle" checked>
+            <span class="track" aria-hidden="true"></span>
+            <span>Balance controller</span>
+          </label>
+        </div>
+        <dl class="stats">
+          <div><dt>Capture-point error</dt><dd class="mono" id="balance-cp">–</dd></div>
+          <div><dt>Pelvis height</dt><dd class="mono" id="balance-height">–</dd></div>
+          <div><dt>Sim speed</dt><dd class="mono" id="balance-speed">–</dd></div>
+        </dl>
+        <div class="legend">
+          <span><i class="sw sw-poly"></i>support polygon</span>
+          <span><i class="sw sw-cp"></i>capture point</span>
+          <span><i class="sw sw-com"></i>COM</span>
+        </div>
+        <details>
+          <summary>How it works</summary>
+          <p>Every physics step the controller computes the whole-body centre of mass <em>c</em>, its velocity <em>v</em> and the
+            capture point <em>ξ = c + v/ω</em> with <em>ω = √(g/z)</em> — where the robot would have to step to come to rest.
+            The error between <em>ξ</em> and the centre of the feet drives an <strong>ankle strategy</strong> (shift the centre of
+            pressure) and a <strong>hip strategy</strong> (swing the trunk, keep the pelvis level) as offsets on a slightly
+            crouched posture; the Menagerie position servos turn those into torques.</p>
+          <p>Gains were tuned offline by random search on a push benchmark (<code>tests/balance_bench.mjs</code>). Switch the
+            controller off to compare with the servos just holding Menagerie's <code>stand</code> keyframe.</p>
+        </details>
+      </aside>
+    </section>
+
+    <!-- ───────────────────── Tab 2: Franka pick-and-place ───────────────────── -->
+    <section class="demo" id="panel-pick" role="tabpanel" aria-labelledby="tab-pick" hidden>
+      <div class="stage">
+        <div class="viewport" id="pick-view"></div>
+        <div class="hud">
+          <span class="chip" id="pick-status" data-state="loading">Loading…</span>
+          <span class="chip mono" id="pick-step" hidden>t 0</span>
+        </div>
+        <p class="hint"><span class="long">Drag a cube or the arm to disturb it · drag the background to orbit</span><span class="short">Drag a cube to disturb · drag background to orbit</span></p>
+        <div class="loading" id="pick-loading"><div class="bar"><span></span></div><p>Loading…</p></div>
+      </div>
+      <aside class="panel">
+        <h1>Franka Panda · put the red cube in the bowl</h1>
+        <p class="lede">The task and scene from <a href="https://github.com/ansh1113/diffusion-pick">diffusion-pick</a>, exported to MJCF and stepped in WebAssembly. Every 0.8&nbsp;s an ONNX policy (onnxruntime-web) predicts a 16-step chunk of end-effector targets; a 250&nbsp;Hz IK loop tracks them.</p>
+        <div class="policy-card">
+          <div class="policy-head">
+            <span class="eyebrow">Policy slot</span>
+            <span class="policy-name" id="pick-policy">–</span>
+          </div>
+          <p class="policy-io mono" id="pick-io">–</p>
+          <div class="views">
+            <figure><canvas id="pick-front" width="64" height="64"></canvas><figcaption>front_rgb</figcaption></figure>
+            <figure><canvas id="pick-wrist" width="64" height="64"></canvas><figcaption>wrist_rgb</figcaption></figure>
+          </div>
+          <label class="btn file">
+            <input type="file" id="pick-file" accept=".onnx">Load .onnx…
+          </label>
+        </div>
+        <div class="controls">
+          <button class="btn primary" id="pick-new" type="button">New episode</button>
+          <button class="btn" id="pick-pause" type="button">Pause</button>
+        </div>
+        <dl class="stats">
+          <div><dt>Successes</dt><dd class="mono" id="pick-score">–</dd></div>
+          <div><dt>Inference</dt><dd class="mono" id="pick-ms">–</dd></div>
+          <div><dt>Episode seed</dt><dd class="mono" id="pick-seed">–</dd></div>
+        </dl>
+        <details>
+          <summary>About the policy slot</summary>
+          <p>The default model is a <strong>placeholder</strong>: a scripted, stateless controller compiled to ONNX ops
+            (<code>tools/make_placeholder_policy.py</code>). It reads privileged object state, so it is a stand-in for wiring, not
+            a learned policy.</p>
+          <p>The slot takes diffusion-pick's export as-is (<code>front_rgb</code>, <code>wrist_rgb</code>, <code>proprio</code>,
+            <code>noise</code> → <code>actions</code>): inputs are matched by name and the camera images are rendered at
+            64×64 from the same <code>front</code> / <code>wrist</code> cameras. Load <code>dp_reduced.onnx</code> above, open
+            <code>?policy=models/dp_reduced.onnx</code>, or change <code>js/franka/policy-slot.js</code>.</p>
+        </details>
+      </aside>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>Physics: <a href="https://github.com/google-deepmind/mujoco">MuJoCo</a> 3.17 (WASM) · Models: <a href="https://github.com/google-deepmind/mujoco_menagerie">MuJoCo Menagerie</a> · Rendering: three.js · Inference: onnxruntime-web</span>
+    <span>Everything runs client-side · <a href="https://github.com/ansh1113/mujoco-web-demo">Source</a></span>
+  </footer>
+
+  <noscript><p class="noscript">This demo needs JavaScript and WebAssembly.</p></noscript>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

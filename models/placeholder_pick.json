@@ -1,0 +1,27 @@
+{
+ "name": "placeholder (scripted, privileged state)",
+ "policy": "scripted",
+ "obs_horizon": 2,
+ "pred_horizon": 16,
+ "action_horizon": 8,
+ "action_dim": 5,
+ "img_size": 64,
+ "inputs": {
+  "proprio": [
+   1,
+   2,
+   12
+  ],
+  "noise": [
+   1,
+   16,
+   5
+  ],
+  "object_state": [
+   1,
+   7
+  ]
+ },
+ "output": "actions [batch, pred_horizon, 5] = (x, y, z, yaw, grip)",
+ "note": "Stateless scripted controller compiled to ONNX ops. Uses privileged object state."
+}

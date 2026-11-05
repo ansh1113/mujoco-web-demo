@@ -1,0 +1,13 @@
+<!-- Portfolio scene for the Menagerie Unitree G1 (g1.xml is Menagerie's, meshes decimated). -->
+<mujoco model="g1 balance scene">
+  <include file="g1.xml"/>
+  <statistic center="0 0 0.7" extent="1.6"/>
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+    <global azimuth="150" elevation="-15" offwidth="1280" offheight="720"/>
+  </visual>
+  <worldbody>
+    <light pos="1 -1 3" dir="-0.3 0.3 -1" directional="true" castshadow="true"/>
+    <geom name="floor" size="0 0 0.05" type="plane" rgba="0.92 0.92 0.9 1" condim="3"/>
+  </worldbody>
+</mujoco>
