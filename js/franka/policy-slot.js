@@ -3,9 +3,9 @@
 //
 //  The pick-and-place tab loads POLICY_SLOT.url on start; POLICY_CHOICES fills the picker.
 //
-//  Default: models/dp_reduced.onnx, diffusion-pick's Diffusion Policy exactly as exported
-//  (exports/dp_reduced.onnx). It succeeds on 40/50 layouts in this page's renderer
-//  (results/browser_eval_dp_reduced.json).
+//  Default: models/dp_browser.onnx, diffusion-pick's dp_reduced fine-tuned on a 50/50 mix of its
+//  MuJoCo-rendered demos and the same demos re-rendered by this page (README, "Closing the render
+//  gap"). Browser eval on 50 layouts: 43/50, vs 40/50 for dp_reduced (results/browser_eval_*.json).
 //
 //  Any export following diffusion-pick's convention works without code changes: inputs are fed by
 //  name (front_rgb, wrist_rgb, proprio, noise, object_state) and a <name>.json next to the .onnx is
@@ -13,7 +13,8 @@
 //  or use the "Load .onnx…" button in the page.
 // ───────────────────────────────────────────────────────────────────────────────
 export const POLICY_CHOICES = [
-  { url: 'models/dp_reduced.onnx', label: 'Diffusion Policy · dp_reduced (diffusion-pick)' },
+  { url: 'models/dp_browser.onnx', label: 'Diffusion Policy · fine-tuned for the browser' },
+  { url: 'models/dp_reduced.onnx', label: 'Diffusion Policy · dp_reduced (original)' },
   { url: 'models/placeholder_pick.onnx', label: 'Placeholder · scripted, privileged state' },
 ];
 

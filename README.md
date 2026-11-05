@@ -6,7 +6,7 @@ no backend and no build step, and every dependency is vendored.
 | Tab | What you can do |
 |---|---|
 | **Humanoid balance** | Click-drag (or touch-drag) the **Unitree G1** from MuJoCo Menagerie to shove it while a capture-point balance controller written in JavaScript keeps it standing. Toggle the controller off to compare with the bare position servos. |
-| **Policy pick-and-place** | A **Franka Panda** puts the red cube in the bowl. The task is the one from [diffusion-pick](https://github.com/ansh1113/diffusion-pick), driven by an **ONNX policy** through onnxruntime-web. The default is diffusion-pick's Diffusion Policy (`dp_reduced`, from pixels); a scripted placeholder is selectable. You can drag the cubes or the arm to disturb it. |
+| **Policy pick-and-place** | A **Franka Panda** puts the red cube in the bowl. The task is the one from [diffusion-pick](https://github.com/ansh1113/diffusion-pick), driven by an **ONNX policy** through onnxruntime-web. The default is diffusion-pick's Diffusion Policy, acting from the 64×64 camera images and fine-tuned on this page's renders (`dp_browser`). The original `dp_reduced` and a scripted placeholder are selectable. You can drag the cubes or the arm to disturb it. |
 
 ![Humanoid balance tab: G1 being pulled by the torso, with the support polygon and capture point drawn on the floor](docs/screenshots/balance.jpg)
 
@@ -95,22 +95,64 @@ The tab loads the model named in **[`js/franka/policy-slot.js`](js/franka/policy
 **by name**, so any model that uses a subset of `front_rgb`, `wrist_rgb`, `proprio`, `noise` and `object_state`
 works without code changes. See [`models/README.md`](models/README.md) for the full contract.
 
-* **Default: `models/dp_reduced.onnx` (27 MB).** diffusion-pick's Diffusion Policy exactly as exported
-  (`exports/dp_reduced.onnx`, plus its `.json` metadata). It sees only the 64×64 `front`/`wrist` renders and proprio.
-  In this page's renderer it succeeds on **40/50** layouts (`results/browser_eval_dp_reduced.json`, via
-  `node tools/lab/run.cjs eval --policy models/dp_reduced.onnx --seeds 1000:1050`), against 87/100 in
-  diffusion-pick's own MuJoCo-rendered eval. Its DDIM-unrolled graph takes about 95–105 ms per chunk on
-  single-threaded WASM.
-* **Placeholder: `models/placeholder_pick.onnx` (5.8 KB)**, selectable in the page. A scripted, stateless
-  controller compiled to ONNX ops by `tools/make_placeholder_policy.py`; it reads **privileged** `object_state`
-  instead of images, so it is a stand-in for the wiring, not a learned policy (50/50 in Python, 20/20 in the JS port).
+* **Default: `models/dp_browser.onnx` (27 MB).** diffusion-pick's `dp_reduced` fine-tuned on browser renders
+  (next section). It sees only the 64×64 `front`/`wrist` renders and proprio, and succeeds on **43/50** browser
+  layouts. Its DDIM-unrolled graph takes about 90–105 ms per chunk on single-threaded WASM.
+* **`models/dp_reduced.onnx` (27 MB)**, selectable. diffusion-pick's Diffusion Policy exactly as exported
+  (byte-identical to `exports/dp_reduced.onnx`), **40/50** in the browser.
+* **Placeholder: `models/placeholder_pick.onnx` (5.8 KB)**, selectable. A scripted, stateless controller compiled
+  to ONNX ops by `tools/make_placeholder_policy.py`; it reads **privileged** `object_state` instead of images, so it
+  is a stand-in for the wiring, not a learned policy (50/50 in Python, 20/20 in the JS port).
 * **Other exports** load through **Load .onnx…**, `?policy=models/<name>.onnx#pick`, or `policy-slot.js`;
   inputs are matched by name.
 
-**Visual sim-to-sim gap.** The browser renders the cameras with three.js, not with MuJoCo's OpenGL renderer.
-Geometry, camera poses, FOV and the black background match, but lighting and shading differ (three.js renders the
-table darker and the shadows softer). That accounts for the drop from 87% to 80%; a fine-tune on browser-rendered
-demos is in progress.
+### Closing the render gap
+
+The browser renders the policy's cameras with three.js, not MuJoCo's OpenGL renderer. Geometry, poses, FOV and the
+black background match pixel for pixel, but lighting differs: three.js renders the table darker, the bowl greyer and
+the shadows softer (mean front-camera RGB 159/133/108 vs 187/155/123 in the training data). To close that gap,
+the training demos were re-rendered through this page and the policy fine-tuned on both renderers.
+
+1. **Recover the state of every training frame.** diffusion-pick's zarr stores images, proprio and actions but
+   not `qpos`. The expert is deterministic per seed, so `scripts/export_states.py` (diffusion-pick) re-runs it for all
+   200 demos and records `qpos` + bowl position per frame. The re-run reproduces the zarr's proprio and actions with
+   **0.0** error.
+2. **Re-render in the browser.** `tools/lab/run.cjs render` sets each recorded state in the WASM sim and captures the
+   64×64 `front`/`wrist` images with the site's own camera code (`js/franka/cams.js`) in headless Chromium:
+   10,035 frames in 12.6 min. `tools/replay_to_zarr.py` writes them, with the original actions/proprio/episode
+   boundaries, to `diffusion-pick/data/demos_64_threejs.zarr`.
+3. **Fine-tune** (`scripts/finetune.py`, diffusion-pick) from `runs/dp_reduced/best.pt`:
+   * each batch of 64 is half original MuJoCo frames, half three.js frames;
+   * brightness/contrast/saturation jitter is raised from ±0.2 to ±0.3, plus a ±12% per-channel colour gain;
+   * the checkpoint's action/proprio normalizers are kept;
+   * lr 1e-4 with a cosine schedule over a 75-minute budget on 4 CPU cores: 10,390 steps, loss 0.0145 → 0.0119.
+
+   The final EMA weights are exported as `dp_browser.onnx` (matches torch to 5e-7). Only the final checkpoint was
+   evaluated, so no checkpoint was picked using the test layouts.
+4. **Evaluate** both models closed-loop on the same 50 layouts in headless Chromium with
+   `node tools/lab/run.cjs eval --policy models/<name>.onnx --seeds 1000:1050`. This uses the site's env, cameras and
+   policy runner, a receding horizon of 8 and a 200-step limit, like `eval_onnx.py`. Results are in
+   `results/browser_eval_*.json`.
+
+| Policy | Browser (three.js renders, 50 layouts) | diffusion-pick Python eval (MuJoCo renders, 50 seeds) |
+|---|---:|---:|
+| `dp_reduced` (before) | 40/50 (80%) | 44/50 (88%) |
+| `dp_browser` (after) | **43/50 (86%)** | 41/50 (82%) |
+
+**How to read this.**
+* **Not a significant improvement.** In the browser the fine-tune wins 7 layouts and loses 4 (exact McNemar
+  p ≈ 0.55). On MuJoCo renders it wins 5 and loses 8 (p ≈ 0.58). At n = 50 neither change is distinguishable from
+  noise.
+* **The render gap was smaller than expected.** The original policy already reached 80% in the browser against
+  88% on its own renders, because it was trained with colour jitter.
+* **Most of the earlier "gap" was a bug.** The page used to render the policy cameras with the previous frame's
+  poses. Fixing that, not the fine-tune, is what made `dp_reduced` usable here.
+* **Why `dp_browser` is still the default.** It cleared the pre-agreed bar of beating 40/50 and is trained on the
+  exact images this page produces.
+* **Next step.** Settling the difference needs more eval layouts (≥ 200) and probably a longer fine-tune.
+
+The Python numbers come from diffusion-pick's `scripts/eval_onnx.py --n 50` with OSMesa rendering, whose frames
+match the original dataset exactly. The earlier 87/100 for `dp_reduced` is its 100-episode run of `evaluate.py`.
 
 ## Tests
 
@@ -124,7 +166,9 @@ This runs `tests/e2e.cjs` with Playwright and headless Chromium, using SwiftShad
 * checks that the G1 stands, survives a 130 N push with the controller on and falls without it;
 * performs a real mouse drag on the torso and checks that grab and release work;
 * switches tabs and checks that the hidden tab's loop stops;
-* waits for the placeholder to put the cube in the bowl, and checks that the 64×64 policy views render;
+* checks that the default is the image-based Diffusion Policy, waits for it to put the cube in the bowl, and checks
+  that the 64×64 policy views render;
+* switches the picker to the placeholder and waits for it to complete an episode;
 * loads diffusion-pick's `dp_reduced.onnx` through the file input and checks that it runs 20 control steps
   without errors;
 * repeats the drag and tab checks on an iPhone 13 viewport, with touch drag and a check for horizontal overflow;
@@ -132,7 +176,7 @@ This runs `tests/e2e.cjs` with Playwright and headless Chromium, using SwiftShad
 * rewrites the screenshots in `docs/screenshots/`.
 
 Set `SCREENSHOTS=0` to keep the screenshots, or `DPICK_ONNX=…` to point it at another export. On the last run all
-19 checks passed with 0 console messages.
+21 checks passed with 0 console messages.
 
 ```bash
 npm run bench
@@ -152,8 +196,10 @@ js/loop.js                     rAF loop that tracks wall-clock time (slow device
 js/g1/                         balance controller + tab 1
 js/franka/                     env port, ONNX policy runner, policy cameras, policy slot, tab 2
 assets/g1, assets/franka       MJCF + meshes (+ manifest.json for the virtual FS)
-models/                        placeholder policy (+ slot docs)
+models/                        dp_browser (default), dp_reduced, placeholder (+ slot docs)
+results/                       browser evaluations (per-episode JSON)
 tools/                         asset/policy build scripts (Python)
+tools/lab/                     headless re-render + closed-loop eval with the site's own modules (Playwright)
 tests/                         Playwright e2e, Node push benchmark
 vendor/                        @mujoco/mujoco 3.17.0, three 0.180.0, onnxruntime-web 1.23.2 (see vendor/README.md)
 ```

@@ -1,24 +1,22 @@
 # Policy slot
 
 The pick-and-place tab loads the model named in [`js/franka/policy-slot.js`](../js/franka/policy-slot.js)
-(default: `placeholder_pick.onnx`). A `<name>.json` next to `<name>.onnx` is read for metadata
+(default: `dp_browser.onnx`). A `<name>.json` next to `<name>.onnx` is read for metadata
 (`obs_horizon`, `pred_horizon`, `action_horizon`, `img_size`); without it the values are inferred
 from the graph's input shapes.
 
 | File | What it is |
 |---|---|
+| `dp_browser.onnx` (+ `.json`) | **Default.** diffusion-pick's Diffusion Policy fine-tuned on a 50/50 mix of MuJoCo- and browser-rendered demos (see the main README, "Closing the render gap"). 43/50 in the browser. 27 MB. |
+| `dp_reduced.onnx` (+ `.json`) | diffusion-pick's `exports/dp_reduced.onnx`, unchanged. 40/50 in the browser. 27 MB. |
 | `placeholder_pick.onnx` | Scripted, stateless pick-and-place controller compiled to plain ONNX ops by `tools/make_placeholder_policy.py`. Uses **privileged** object state (`object_state`), so it is a stand-in for the wiring, not a learned policy. 5.8 KB. |
 | `placeholder_pick.json` | Its metadata. |
 
-## Dropping in diffusion-pick's Diffusion Policy
+## Using another diffusion-pick export
 
-```bash
-cp ../diffusion-pick/exports/dp_reduced.onnx ../diffusion-pick/exports/dp_reduced.json models/
-```
-
-then either set `url: 'models/dp_reduced.onnx'` in `js/franka/policy-slot.js`, or open
-`index.html?policy=models/dp_reduced.onnx#pick`. (`models/dp_*.onnx` is git-ignored because the file
-is 27 MB; remove that line from `.gitignore` if you want to host it.)
+Copy `<name>.onnx` and `<name>.json` here and add an entry to `POLICY_CHOICES` in `js/franka/policy-slot.js`, or
+open `index.html?policy=models/<name>.onnx#pick`. Other `models/dp_*.onnx` files are git-ignored (27 MB each);
+add an `!models/<name>.onnx` line to `.gitignore` to host one.
 
 Input contract (matched **by name**; a model may use any subset):
 
