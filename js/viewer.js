@@ -171,6 +171,7 @@ export class Viewer {
     const sx = m.geom_size[3 * i] || 20;
     const sy = m.geom_size[3 * i + 1] || 20;
     const g = new THREE.PlaneGeometry(2 * sx, 2 * sy);
+    this.floorModelColor = color.clone(); // the MJCF colour (the theme colour is applied on top)
     this.floorMat = new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0 });
     const floor = new THREE.Mesh(g, this.floorMat);
     floor.receiveShadow = true;

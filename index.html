@@ -87,8 +87,8 @@
         <p class="lede">The task and scene from <a href="https://github.com/ansh1113/diffusion-pick">diffusion-pick</a>, exported to MJCF and stepped in WebAssembly. Every 0.8&nbsp;s an ONNX policy (onnxruntime-web) predicts a 16-step chunk of end-effector targets; a 250&nbsp;Hz IK loop tracks them.</p>
         <div class="policy-card">
           <div class="policy-head">
-            <span class="eyebrow">Policy slot</span>
-            <span class="policy-name" id="pick-policy">–</span>
+            <label class="eyebrow" for="pick-select">Policy</label>
+            <select class="policy-select" id="pick-select"></select>
           </div>
           <p class="policy-io mono" id="pick-io">–</p>
           <div class="views">
@@ -109,14 +109,14 @@
           <div><dt>Episode seed</dt><dd class="mono" id="pick-seed">–</dd></div>
         </dl>
         <details>
-          <summary>About the policy slot</summary>
-          <p>The default model is a <strong>placeholder</strong>: a scripted, stateless controller compiled to ONNX ops
-            (<code>tools/make_placeholder_policy.py</code>). It reads privileged object state, so it is a stand-in for wiring, not
-            a learned policy.</p>
-          <p>The slot takes diffusion-pick's export as-is (<code>front_rgb</code>, <code>wrist_rgb</code>, <code>proprio</code>,
-            <code>noise</code> → <code>actions</code>): inputs are matched by name and the camera images are rendered at
-            64×64 from the same <code>front</code> / <code>wrist</code> cameras. Load <code>dp_reduced.onnx</code> above, open
-            <code>?policy=models/dp_reduced.onnx</code>, or change <code>js/franka/policy-slot.js</code>.</p>
+          <summary>About the policy</summary>
+          <p>The default is diffusion-pick's <strong>Diffusion Policy</strong> (ResNet18 encoders on the 64×64
+            <code>front</code> and <code>wrist</code> cameras + proprio, 10-step DDIM, 16-step action chunks), fine-tuned
+            on its 200 demos re-rendered by this page's three.js renderer mixed 50/50 with the original MuJoCo renders.
+            The views above are exactly what it sees.</p>
+          <p>The <strong>placeholder</strong> is a scripted controller compiled to ONNX ops that reads privileged object
+            state instead of images. Any diffusion-pick export loads through <strong>Load .onnx…</strong> or
+            <code>?policy=models/&lt;name&gt;.onnx</code>; inputs are matched by name.</p>
         </details>
       </aside>
     </section>

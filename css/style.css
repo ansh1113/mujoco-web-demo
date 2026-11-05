@@ -224,9 +224,24 @@ summary { cursor: pointer; font-weight: 500; font-size: 14px; }
 details p { color: var(--muted); font-size: 13.5px; margin: 10px 0 0; }
 
 .policy-card { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
-.policy-head { display: flex; flex-direction: column; gap: 2px; }
+.policy-head { display: flex; flex-direction: column; gap: 5px; }
 .eyebrow { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-.policy-name { font-weight: 600; font-size: 14.5px; overflow-wrap: anywhere; }
+.policy-select {
+  appearance: none;
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--fg);
+  background: var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 10px center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 28px 6px 10px;
+  width: 100%;
+  min-width: 0;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.policy-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .policy-io { margin: 0; font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
 .views { display: flex; gap: 10px; }
 .views figure { margin: 0; display: flex; flex-direction: column; gap: 4px; }

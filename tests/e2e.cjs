@@ -4,7 +4,6 @@
 //   node tests/e2e.cjs                      # uses ../diffusion-pick/exports/dp_reduced.onnx if present
 //   DPICK_ONNX=/path/to/dp_reduced.onnx node tests/e2e.cjs
 //   SCREENSHOTS=0 node tests/e2e.cjs        # don't rewrite docs/screenshots
-const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const { chromium, devices } = require('playwright');
@@ -13,23 +12,7 @@ const ROOT = path.resolve(__dirname, '..');
 const SHOTS = path.join(ROOT, 'docs', 'screenshots');
 const DP_ONNX = process.env.DPICK_ONNX || path.resolve(ROOT, '..', 'diffusion-pick', 'exports', 'dp_reduced.onnx');
 const WRITE_SHOTS = process.env.SCREENSHOTS !== '0';
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css',
-  '.json': 'application/json', '.wasm': 'application/wasm', '.onnx': 'application/octet-stream',
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml' };
-
-function serve() {
-  const server = http.createServer((req, res) => {
-    const url = new URL(req.url, 'http://x');
-    let file = path.join(ROOT, decodeURIComponent(url.pathname));
-    if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
-    if (fs.existsSync(file) && fs.statSync(file).isDirectory()) file = path.join(file, 'index.html');
-    fs.readFile(file, (err, buf) => {
-      if (err) { res.writeHead(404).end('not found'); return; }
-      res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' }).end(buf);
-    });
-  });
-  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
-}
+const { serve, CHROMIUM_ARGS } = require('../tools/static-server.cjs');
 
 let failures = 0;
 function check(cond, msg) {
@@ -67,10 +50,9 @@ function bodyScreen(page, demo, body) {
 }
 
 async function main() {
-  const server = await serve();
+  const server = await serve(ROOT);
   const base = `http://127.0.0.1:${server.address().port}/`;
-  // SwiftShader gives headless Chromium a software WebGL2 implementation.
-  const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  const browser = await chromium.launch({ args: CHROMIUM_ARGS });
   const problems = [];
   if (WRITE_SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
   const shot = async (page, name) => {
@@ -139,23 +121,29 @@ async function main() {
     check(await page.isHidden('#panel-balance'), 'tab switch hides tab 1');
     check(await page.evaluate(() => !window.__demo.instances.balance.debug.loop.running), 'tab 1 loop stops when hidden');
     const io = await page.textContent('#pick-io');
-    check(io.includes('object_state') && io.includes('actions[1,16,5]'), `placeholder I/O shown: ${io}`);
+    check(io.includes('front_rgb') && io.includes('wrist_rgb') && io.includes('actions[1,16,5]'),
+      `default policy is the image-based Diffusion Policy: ${io}`);
+    check(await page.inputValue('#pick-select') === 'models/dp_browser.onnx', 'policy picker shows dp_browser.onnx');
     // wait for a carry, take the screenshot, then wait for the first success
-    await page.waitForFunction(() => {
-      const { env } = window.__demo.instances.pick.debug;
-      return env.cubePos()[2] > 0.09;
-    }, null, { timeout: 90000, polling: 50 });
+    await page.waitForFunction(() => window.__demo.instances.pick.debug.env.cubePos()[2] > 0.09,
+      null, { timeout: 240000, polling: 50 });
     await page.waitForTimeout(300);
     await shot(page, 'pick.jpg');
-    await page.waitForFunction(() => window.__demo.instances.pick.debug.score.ok >= 1, null, { timeout: 90000 });
+    await page.waitForFunction(() => window.__demo.instances.pick.debug.score.ok >= 1, null, { timeout: 240000 });
     const sc = await page.evaluate(() => window.__demo.instances.pick.debug.score);
-    check(sc.ok >= 1, `placeholder policy puts the red cube in the bowl (score ${sc.ok}/${sc.n})`);
+    check(sc.ok >= 1, `Diffusion Policy puts the red cube in the bowl from pixels (score ${sc.ok}/${sc.n})`);
     const thumbs = await page.evaluate(() => ['pick-front', 'pick-wrist'].map((id) => {
       const c = document.getElementById(id).getContext('2d').getImageData(0, 0, 64, 64).data;
       let s = 0; for (let i = 0; i < c.length; i += 4) s += c[i] + c[i + 1] + c[i + 2];
       return s / (64 * 64 * 3);
     }));
     check(thumbs.every((m) => m > 10), `64x64 policy camera views are rendered (mean intensity ${thumbs.map((m) => m.toFixed(0)).join(', ')})`);
+
+    console.log('Policy picker · placeholder');
+    await page.selectOption('#pick-select', 'models/placeholder_pick.onnx');
+    await page.waitForFunction(() => window.__demo.instances.pick.debug.policy?.inputs.includes('object_state'), null, { timeout: 60000 });
+    await page.waitForFunction(() => window.__demo.instances.pick.debug.score.ok >= 1, null, { timeout: 120000 });
+    check(true, 'switching to the placeholder works and it completes an episode');
 
     if (fs.existsSync(DP_ONNX)) {
       console.log(`Policy slot · ${path.basename(DP_ONNX)} (diffusion-pick export)`);
@@ -202,7 +190,7 @@ async function main() {
     await shot(m, 'mobile-balance.jpg');
     await m.tap('#tab-pick');
     await m.waitForFunction(() => window.__demo.instances.pick?.debug.policy, null, { timeout: 60000 });
-    await m.waitForFunction(() => window.__demo.instances.pick.debug.env.cubePos()[2] > 0.08, null, { timeout: 90000, polling: 50 });
+    await m.waitForFunction(() => window.__demo.instances.pick.debug.env.cubePos()[2] > 0.08, null, { timeout: 240000, polling: 50 });
     const overflow2 = await m.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     check(overflow2 <= 0, `no horizontal scroll on tab 2 (overflow ${overflow2}px)`);
     await shot(m, 'mobile-pick.jpg');

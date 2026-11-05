@@ -2,5 +2,8 @@ node_modules/
 __pycache__/
 *.pyc
 .DS_Store
-# drop-in policies copied from diffusion-pick are large; commit them deliberately if you want them hosted
+# drop-in policies copied from diffusion-pick are large; only the browser-fine-tuned default is committed
 models/dp_*.onnx
+models/dp_*.json
+!models/dp_browser.onnx
+!models/dp_browser.json

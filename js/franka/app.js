@@ -1,12 +1,11 @@
 // Tab 2: Franka Panda pick-and-place driven by an ONNX policy (onnxruntime-web).
-import { loadScene, Rng } from '../runtime.js';
-import { Viewer } from '../viewer.js';
+import { Rng } from '../runtime.js';
 import { Perturb } from '../perturb.js';
 import { SimLoop } from '../loop.js';
 import { PickEnv } from './env.js';
 import { OnnxPolicy } from './policy.js';
-import { PolicyCameras } from './cams.js';
-import { POLICY_SLOT } from './policy-slot.js';
+import { loadPickScene, createPickViewer } from './scene.js';
+import { POLICY_SLOT, POLICY_CHOICES } from './policy-slot.js';
 
 const $ = (id) => document.getElementById(id);
 const MAX_STEPS = 200;     // 20 s at 10 Hz, as in diffusion-pick's evaluation
@@ -39,17 +38,12 @@ function inferMeta(session) {
 export async function createPickDemo({ mj, ui }) {
   ui.progress(0.25, 'Loading Franka scene + onnxruntime-web…');
   const [{ model, data }, ort] = await Promise.all([
-    loadScene(mj, 'assets/franka', 'franka', 'pick_scene.xml', (f) => ui.progress(0.25 + 0.5 * f)),
+    loadPickScene(mj, 'assets/franka', (f) => ui.progress(0.25 + 0.5 * f)),
     loadOrt(),
   ]);
   const env = new PickEnv(mj, model, data, { maxSteps: MAX_STEPS });
 
-  const viewer = new Viewer({
-    container: $('pick-view'), model, data,
-    cameraPos: [1.72, -1.05, 0.98], cameraTarget: [0.38, 0.0, 0.16], fov: 38, shadowExtent: 1.0,
-  });
-  viewer.followShadow(0.45, 0);
-  const cams = new PolicyCameras(viewer, 64);
+  const { viewer, cams } = createPickViewer($('pick-view'), model, data);
   const perturb = new Perturb(viewer, { stiffness: 250, damping: 12, maxForce: 40, massScaled: true });
 
   const status = $('pick-status');
@@ -71,7 +65,7 @@ export async function createPickDemo({ mj, ui }) {
       await policy?.dispose();
       policy = p;
       policyError = null;
-      $('pick-policy').textContent = label;
+      selectPolicy(typeof src === 'string' ? src : null, label);
       const dims = { proprio: `[1,${p.meta.obs_horizon},12]`, noise: `[1,${p.meta.pred_horizon},5]`,
         object_state: '[1,7]', front_rgb: `[1,${p.meta.obs_horizon},3,${p.meta.img_size},${p.meta.img_size}]`,
         wrist_rgb: `[1,${p.meta.obs_horizon},3,${p.meta.img_size},${p.meta.img_size}]` };
@@ -211,6 +205,22 @@ export async function createPickDemo({ mj, ui }) {
     const bytes = new Uint8Array(await file.arrayBuffer());
     await setPolicy(bytes, file.name);
     e.target.value = '';
+  });
+
+  // ── policy picker
+  const select = $('pick-select');
+  for (const c of POLICY_CHOICES) select.add(new Option(c.label, c.url));
+  function selectPolicy(url, label) {
+    let opt = [...select.options].find((o) => o.value === url);
+    if (!opt) {
+      opt = new Option(label, url ?? `local:${label}`);
+      select.add(opt);
+    }
+    select.value = opt.value;
+  }
+  select.addEventListener('change', () => {
+    const c = POLICY_CHOICES.find((x) => x.url === select.value);
+    if (c) setPolicy(c.url, c.label);
   });
 
   ui.progress(0.85, 'Loading policy…');

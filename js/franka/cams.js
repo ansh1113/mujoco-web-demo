@@ -32,10 +32,15 @@ export class PolicyCameras {
   /** Render the given MuJoCo cameras now; resolves to [{ chw, image }] once the pixels are back. */
   capture(ids) {
     const { renderer, scene, data } = this.v;
+    // geom poses must reflect the current physics state, not the last rendered frame
+    this.v.sync();
     const p = data.cam_xpos, R = data.cam_xmat;
     const bg = scene.background, fog = scene.fog, tone = renderer.toneMapping;
     scene.background = this.black;
     scene.fog = null;
+    // theme-independent: use the MJCF floor colour so light/dark mode give identical observations
+    const floorColor = this.v.floorMat?.color.clone();
+    if (floorColor) this.v.floorMat.color.copy(this.v.floorModelColor);
     renderer.toneMapping = THREE.NoToneMapping;
     const reads = [];
     for (const id of ids) {
@@ -51,6 +56,7 @@ export class PolicyCameras {
       reads.push(renderer.readRenderTargetPixelsAsync(rt, 0, 0, this.size, this.size, rgba).then(() => this.pack(rgba)));
     }
     renderer.setRenderTarget(null);
+    if (floorColor) this.v.floorMat.color.copy(floorColor);
     renderer.toneMapping = tone;
     scene.background = bg;
     scene.fog = fog;
