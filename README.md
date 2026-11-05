@@ -65,7 +65,10 @@ and the shipped WASM build. Each value is the largest 0.1 s push on the torso th
 
 **Limits.** This is a standing controller and it does not take steps. A sustained sideways pull of about 50 N
 needs more centre-of-pressure shift than the 30 cm stance allows, so the robot tips onto one foot and pivots or
-falls. The page auto-resets 1.8 s after a fall. Capture-point stepping is the natural next step.
+falls. The page auto-resets 1.8 s after a fall. Capture-point stepping is the natural next step. A first
+IK-based stepping attempt was not shipped: it lifted the swing foot without first shifting weight onto the stance
+foot, so the robot rolled toward the unsupported side and forward push tolerance dropped from 250 N to 56 N. A real
+stepping controller needs a weight-shift phase before lift-off.
 
 ## Tab 2: Franka pick-and-place with an ONNX policy
 
