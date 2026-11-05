@@ -6,7 +6,7 @@ no backend and no build step, and every dependency is vendored.
 | Tab | What you can do |
 |---|---|
 | **Humanoid balance** | Click-drag (or touch-drag) the **Unitree G1** from MuJoCo Menagerie to shove it while a capture-point balance controller written in JavaScript keeps it standing. Toggle the controller off to compare with the bare position servos. |
-| **Policy pick-and-place** | A **Franka Panda** puts the red cube in the bowl. The task is the one from [diffusion-pick](https://github.com/ansh1113/diffusion-pick), driven by an **ONNX policy** through onnxruntime-web. The default is diffusion-pick's Diffusion Policy, acting from the 64×64 camera images and fine-tuned on this page's renders (`dp_browser`). The original `dp_reduced` and a scripted placeholder are selectable. You can drag the cubes or the arm to disturb it. |
+| **Policy pick-and-place** | A **Franka Panda** puts the red cube in the bowl. The task is the one from [diffusion-pick](https://github.com/ansh1113/diffusion-pick), driven by an **ONNX policy** through onnxruntime-web. The default is diffusion-pick's Diffusion Policy v2 (`dp_v2`), acting from the 64×64 camera images. The v1 policy (as exported, and fine-tuned on this page's renders) and a scripted placeholder are selectable. You can drag the cubes or the arm to disturb it. |
 
 ![Humanoid balance tab: G1 being pulled by the torso, with the support polygon and capture point drawn on the floor](docs/screenshots/balance.jpg)
 
@@ -95,11 +95,15 @@ The tab loads the model named in **[`js/franka/policy-slot.js`](js/franka/policy
 **by name**, so any model that uses a subset of `front_rgb`, `wrist_rgb`, `proprio`, `noise` and `object_state`
 works without code changes. See [`models/README.md`](models/README.md) for the full contract.
 
-* **Default: `models/dp_browser.onnx` (27 MB).** diffusion-pick's `dp_reduced` fine-tuned on browser renders
-  (next section). It sees only the 64×64 `front`/`wrist` renders and proprio, and succeeds on **43/50** browser
-  layouts. Its DDIM-unrolled graph takes about 90–105 ms per chunk on single-threaded WASM.
-* **`models/dp_reduced.onnx` (27 MB)**, selectable. diffusion-pick's Diffusion Policy exactly as exported
-  (byte-identical to `exports/dp_reduced.onnx`), **40/50** in the browser.
+* **Default: `models/dp_v2.onnx` (27 MB).** diffusion-pick's v2 Diffusion Policy, byte-identical to
+  `exports/dp_v2.onnx` on its `claude/dp-v2-recovery-aug` branch. Same architecture and I/O as v1, trained with
+  recovery demos (one deliberate mistake per episode, then a re-grasp) and strong photometric augmentation. It
+  was **not** trained on browser renders, and succeeds on **45/50** browser layouts. Its DDIM-unrolled graph takes
+  about 90–105 ms per chunk on single-threaded WASM.
+* **`models/dp_browser.onnx` (27 MB)**, selectable. v1 (`dp_reduced`) fine-tuned on browser renders (next
+  section), **43/50** in the browser.
+* **`models/dp_reduced.onnx` (27 MB)**, selectable. v1 exactly as exported (byte-identical to
+  `exports/dp_reduced.onnx`), **40/50** in the browser.
 * **Placeholder: `models/placeholder_pick.onnx` (5.8 KB)**, selectable. A scripted, stateless controller compiled
   to ONNX ops by `tools/make_placeholder_policy.py`; it reads **privileged** `object_state` instead of images, so it
   is a stand-in for the wiring, not a learned policy (50/50 in Python, 20/20 in the JS port).
@@ -137,7 +141,7 @@ the training demos were re-rendered through this page and the policy fine-tuned 
 | Policy | Browser (three.js renders, 50 layouts) | diffusion-pick Python eval (MuJoCo renders, 50 seeds) |
 |---|---:|---:|
 | `dp_reduced` (before) | 40/50 (80%) | 44/50 (88%) |
-| `dp_browser` (after) | **43/50 (86%)** | 41/50 (82%) |
+| `dp_browser` (after) | 43/50 (86%) | 41/50 (82%) |
 
 **How to read this.**
 * **Not a significant improvement.** In the browser the fine-tune wins 7 layouts and loses 4 (exact McNemar
@@ -147,12 +151,43 @@ the training demos were re-rendered through this page and the policy fine-tuned 
   88% on its own renders, because it was trained with colour jitter.
 * **Most of the earlier "gap" was a bug.** The page used to render the policy cameras with the previous frame's
   poses. Fixing that, not the fine-tune, is what made `dp_reduced` usable here.
-* **Why `dp_browser` is still the default.** It cleared the pre-agreed bar of beating 40/50 and is trained on the
-  exact images this page produces.
-* **Next step.** Settling the difference needs more eval layouts (≥ 200) and probably a longer fine-tune.
+* **Default at the time.** `dp_browser` cleared the pre-agreed bar of beating 40/50 and became the default. It has
+  since been replaced by `dp_v2`, which needed no browser fine-tuning (next section).
 
 The Python numbers come from diffusion-pick's `scripts/eval_onnx.py --n 50` with OSMesa rendering, whose frames
 match the original dataset exactly. The earlier 87/100 for `dp_reduced` is its 100-episode run of `evaluate.py`.
+
+### Browser results
+
+All three Diffusion Policies on the same 50 layouts (seeds 1000–1049), with the same diffusion noise per seed,
+in headless Chromium. Paired comparisons use `python tools/compare_evals.py A.json B.json`, the same exact
+two-sided McNemar test as diffusion-pick's `scripts/compare_paired.py`.
+
+| Policy | Browser success | Mean steps on success | diffusion-pick's own eval (MuJoCo renders) |
+|---|---:|---:|---|
+| `dp_reduced` (v1, as exported) | 40/50 (80%) | 69.8 | 87% nominal, 100 seeds |
+| `dp_browser` (v1 + browser fine-tune) | 43/50 (86%) | 52.5 | 41/50 (`eval_onnx.py`, above) |
+| **`dp_v2`** (default) | **45/50 (90%)** | 59.0 | 95% nominal, 93% under lighting shifts, 100 seeds |
+
+| Comparison (same seeds) | A fail → B success | A success → B fail | Exact McNemar p |
+|---|---:|---:|---:|
+| `dp_browser` → `dp_v2` | 5 | 3 | 0.73 |
+| `dp_reduced` → `dp_v2` | 9 | 4 | 0.27 |
+| `dp_reduced` → `dp_browser` | 7 | 4 | 0.55 |
+
+* **Why `dp_v2` is the default.** The rule, set before the eval, was to switch if it was at least as good as
+  `dp_browser` (≥ 43/50). It scored 45/50.
+* **The advantage is not significant.** 5 layouts fixed against 3 broken (p = 0.73). No pair of these three policies
+  is significantly different at n = 50.
+* **v2 needs no browser-specific training.** The browser fine-tune gave v1 a non-significant +3. v2 reaches 45/50
+  out of the box, consistent with its lighting robustness in diffusion-pick (93% vs v1's 67% under lighting
+  perturbations, p = 8.7e-7) and with recovery demos that let it re-grasp after a bad first attempt.
+* **Next step.** Ranking these policies reliably in the browser needs ≥ 200 layouts. A browser fine-tune of v2
+  is the obvious follow-up.
+
+The v2 MuJoCo-render figures are from diffusion-pick's `claude/dp-v2-recovery-aug` README, not re-run here. Its
+code diff touches only training (training-only distractor pool, stronger augmentation, recovery expert); the
+test env, action semantics and proprio are unchanged, so this page's JS env port applies to v2 as-is.
 
 ## Tests
 
@@ -196,8 +231,8 @@ js/loop.js                     rAF loop that tracks wall-clock time (slow device
 js/g1/                         balance controller + tab 1
 js/franka/                     env port, ONNX policy runner, policy cameras, policy slot, tab 2
 assets/g1, assets/franka       MJCF + meshes (+ manifest.json for the virtual FS)
-models/                        dp_browser (default), dp_reduced, placeholder (+ slot docs)
-results/                       browser evaluations (per-episode JSON)
+models/                        dp_v2 (default), dp_browser, dp_reduced, placeholder (+ slot docs)
+results/                       browser evaluations (per-episode JSON); tools/compare_evals.py pairs them
 tools/                         asset/policy build scripts (Python)
 tools/lab/                     headless re-render + closed-loop eval with the site's own modules (Playwright)
 tests/                         Playwright e2e, Node push benchmark

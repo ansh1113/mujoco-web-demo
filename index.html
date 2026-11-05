@@ -110,10 +110,11 @@
         </dl>
         <details>
           <summary>About the policy</summary>
-          <p>The default is diffusion-pick's <strong>Diffusion Policy</strong> (ResNet18 encoders on the 64×64
-            <code>front</code> and <code>wrist</code> cameras + proprio, 10-step DDIM, 16-step action chunks), fine-tuned
-            on its 200 demos re-rendered by this page's three.js renderer mixed 50/50 with the original MuJoCo renders.
-            The views above are exactly what it sees.</p>
+          <p>The default is diffusion-pick's <strong>Diffusion Policy v2</strong> (ResNet18 encoders on the 64×64
+            <code>front</code> and <code>wrist</code> cameras + proprio, 10-step DDIM, 16-step action chunks), trained
+            with recovery demonstrations (deliberate missed grasps and re-grasps) and strong photometric augmentation.
+            The views above are exactly what it sees. The v1 policy, as exported and fine-tuned on this page's renders,
+            is also in the picker.</p>
           <p>The <strong>placeholder</strong> is a scripted controller compiled to ONNX ops that reads privileged object
             state instead of images. Any diffusion-pick export loads through <strong>Load .onnx…</strong> or
             <code>?policy=models/&lt;name&gt;.onnx</code>; inputs are matched by name.</p>

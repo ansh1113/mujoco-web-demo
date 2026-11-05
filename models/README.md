@@ -1,13 +1,14 @@
 # Policy slot
 
 The pick-and-place tab loads the model named in [`js/franka/policy-slot.js`](../js/franka/policy-slot.js)
-(default: `dp_browser.onnx`). A `<name>.json` next to `<name>.onnx` is read for metadata
+(default: `dp_v2.onnx`). A `<name>.json` next to `<name>.onnx` is read for metadata
 (`obs_horizon`, `pred_horizon`, `action_horizon`, `img_size`); without it the values are inferred
 from the graph's input shapes.
 
 | File | What it is |
 |---|---|
-| `dp_browser.onnx` (+ `.json`) | **Default.** diffusion-pick's Diffusion Policy fine-tuned on a 50/50 mix of MuJoCo- and browser-rendered demos (see the main README, "Closing the render gap"). 43/50 in the browser. 27 MB. |
+| `dp_v2.onnx` (+ `.json`) | **Default.** diffusion-pick's v2 Diffusion Policy (recovery demos + strong photometric augmentation), from `exports/dp_v2.onnx` on its `claude/dp-v2-recovery-aug` branch. 45/50 in the browser. 27 MB. |
+| `dp_browser.onnx` (+ `.json`) | diffusion-pick's v1 Diffusion Policy fine-tuned on a 50/50 mix of MuJoCo- and browser-rendered demos (see the main README, "Closing the render gap"). 43/50 in the browser. 27 MB. |
 | `dp_reduced.onnx` (+ `.json`) | diffusion-pick's `exports/dp_reduced.onnx`, unchanged. 40/50 in the browser. 27 MB. |
 | `placeholder_pick.onnx` | Scripted, stateless pick-and-place controller compiled to plain ONNX ops by `tools/make_placeholder_policy.py`. Uses **privileged** object state (`object_state`), so it is a stand-in for the wiring, not a learned policy. 5.8 KB. |
 | `placeholder_pick.json` | Its metadata. |

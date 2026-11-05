@@ -9,3 +9,5 @@ models/dp_*.json
 !models/dp_reduced.json
 !models/dp_browser.onnx
 !models/dp_browser.json
+!models/dp_v2.onnx
+!models/dp_v2.json
