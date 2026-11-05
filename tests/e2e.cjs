@@ -123,7 +123,8 @@ async function main() {
     const io = await page.textContent('#pick-io');
     check(io.includes('front_rgb') && io.includes('wrist_rgb') && io.includes('actions[1,16,5]'),
       `default policy is the image-based Diffusion Policy: ${io}`);
-    check(await page.inputValue('#pick-select') === 'models/dp_browser.onnx', 'policy picker shows dp_browser.onnx');
+    const slot = await page.evaluate(async () => (await import('/js/franka/policy-slot.js')).POLICY_SLOT.url);
+    check(await page.inputValue('#pick-select') === slot, `policy picker shows the default slot (${slot})`);
     // wait for a carry, take the screenshot, then wait for the first success
     await page.waitForFunction(() => window.__demo.instances.pick.debug.env.cubePos()[2] > 0.09,
       null, { timeout: 240000, polling: 50 });

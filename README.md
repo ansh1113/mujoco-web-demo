@@ -6,7 +6,7 @@ no backend and no build step, and every dependency is vendored.
 | Tab | What you can do |
 |---|---|
 | **Humanoid balance** | Click-drag (or touch-drag) the **Unitree G1** from MuJoCo Menagerie to shove it while a capture-point balance controller written in JavaScript keeps it standing. Toggle the controller off to compare with the bare position servos. |
-| **Policy pick-and-place** | A **Franka Panda** puts the red cube in the bowl. The task is the one from [diffusion-pick](https://github.com/ansh1113/diffusion-pick), driven by an **ONNX policy** through onnxruntime-web. A placeholder policy ships by default, and there is a slot for diffusion-pick's Diffusion Policy export. You can drag the cubes or the arm to disturb it. |
+| **Policy pick-and-place** | A **Franka Panda** puts the red cube in the bowl. The task is the one from [diffusion-pick](https://github.com/ansh1113/diffusion-pick), driven by an **ONNX policy** through onnxruntime-web. The default is diffusion-pick's Diffusion Policy (`dp_reduced`, from pixels); a scripted placeholder is selectable. You can drag the cubes or the arm to disturb it. |
 
 ![Humanoid balance tab: G1 being pulled by the torso, with the support polygon and capture point drawn on the floor](docs/screenshots/balance.jpg)
 
@@ -95,31 +95,22 @@ The tab loads the model named in **[`js/franka/policy-slot.js`](js/franka/policy
 **by name**, so any model that uses a subset of `front_rgb`, `wrist_rgb`, `proprio`, `noise` and `object_state`
 works without code changes. See [`models/README.md`](models/README.md) for the full contract.
 
-* **Default: `models/placeholder_pick.onnx` (5.8 KB).** This is a scripted, stateless pick-and-place controller
-  compiled to plain ONNX ops by `tools/make_placeholder_policy.py`.
-  * It has the same `proprio`/`noise` → `actions [1,16,5]` interface as the real policy, plus
-    **privileged** `object_state` (cube pose and bowl position) in place of images. It is a stand-in for the wiring,
-    not a learned policy.
-  * The build script checks the ONNX graph against a NumPy reference.
-  * It succeeds on 50/50 seeds in diffusion-pick's Python env and on 20/20 in the JS port.
-* **diffusion-pick's Diffusion Policy.** Use either of these routes:
+* **Default: `models/dp_reduced.onnx` (27 MB).** diffusion-pick's Diffusion Policy exactly as exported
+  (`exports/dp_reduced.onnx`, plus its `.json` metadata). It sees only the 64×64 `front`/`wrist` renders and proprio.
+  In this page's renderer it succeeds on **40/50** layouts (`results/browser_eval_dp_reduced.json`, via
+  `node tools/lab/run.cjs eval --policy models/dp_reduced.onnx --seeds 1000:1050`), against 87/100 in
+  diffusion-pick's own MuJoCo-rendered eval. Its DDIM-unrolled graph takes about 95–105 ms per chunk on
+  single-threaded WASM.
+* **Placeholder: `models/placeholder_pick.onnx` (5.8 KB)**, selectable in the page. A scripted, stateless
+  controller compiled to ONNX ops by `tools/make_placeholder_policy.py`; it reads **privileged** `object_state`
+  instead of images, so it is a stand-in for the wiring, not a learned policy (50/50 in Python, 20/20 in the JS port).
+* **Other exports** load through **Load .onnx…**, `?policy=models/<name>.onnx#pick`, or `policy-slot.js`;
+  inputs are matched by name.
 
-  ```bash
-  cp ../diffusion-pick/exports/dp_reduced.onnx ../diffusion-pick/exports/dp_reduced.json models/
-  ```
-
-  Then set `url: 'models/dp_reduced.onnx'` in `policy-slot.js`, or open `?policy=models/dp_reduced.onnx#pick`.
-  Alternatively, click **Load .onnx…** in the page and pick the file. Its metadata is then inferred from the
-  graph.
-
-  The e2e test loads the real `dp_reduced.onnx` this way. Its DDIM-unrolled graph runs at about 95 ms per chunk on
-  single-threaded WASM, so it is usable in real time.
-
-**Honest caveat: the visual sim-to-sim gap.** The browser renders the cameras with three.js, not with MuJoCo's
-OpenGL renderer. Geometry, camera poses, FOV and the black background match, but the lighting and shading do not.
-A policy trained on MuJoCo-rendered pixels, like `dp_reduced`, therefore sees out-of-distribution images and should
-not be expected to reach its Python success rate here. Closing the gap would mean either matching MuJoCo's
-lighting model in the shader or retraining with augmentation on renders from this page.
+**Visual sim-to-sim gap.** The browser renders the cameras with three.js, not with MuJoCo's OpenGL renderer.
+Geometry, camera poses, FOV and the black background match, but lighting and shading differ (three.js renders the
+table darker and the shadows softer). That accounts for the drop from 87% to 80%; a fine-tune on browser-rendered
+demos is in progress.
 
 ## Tests
 
