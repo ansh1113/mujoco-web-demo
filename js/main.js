@@ -1,10 +1,18 @@
 // Tab shell: lazily builds each demo on first visit and only runs the visible one.
 import { getMujoco } from './runtime.js';
+import { fetchModel, initialPolicyUrl, describe, fraction } from './franka/fetch-model.js';
 
 const DEMOS = {
   balance: () => import('./g1/app.js').then((m) => m.createBalanceDemo),
   pick: () => import('./franka/app.js').then((m) => m.createPickDemo),
 };
+
+const DEFAULT_DEMO = 'pick'; // first tab; also used for an empty or unknown #hash
+
+// The pick tab is the default and its policy is the largest download (27 MB), so when the page opens
+// on it, start that download before anything else, in parallel with MuJoCo's WASM.
+const firstDemo = DEMOS[location.hash.slice(1)] ? location.hash.slice(1) : DEFAULT_DEMO;
+if (firstDemo === 'pick') fetchModel(initialPolicyUrl());
 
 const instances = {};
 const pending = {};
@@ -39,11 +47,19 @@ async function ensure(name) {
     pending[name] = (async () => {
       try {
         ui.progress(0.05, 'Loading MuJoCo (WebAssembly)…');
-        const [mj, create] = await Promise.all([getMujoco(), DEMOS[name]()]);
-        const inst = await create({ mj, ui });
-        instances[name] = inst;
-        ui.done();
-        return inst;
+        // The policy download dominates the pick tab's start-up: show its progress in the overlay.
+        const off = name === 'pick'
+          ? fetchModel(initialPolicyUrl()).onProgress((s) => ui.progress(Math.max(0.05, fraction(s)), describe(s)))
+          : null;
+        try {
+          const [mj, create] = await Promise.all([getMujoco(), DEMOS[name]()]);
+          const inst = await create({ mj, ui });
+          instances[name] = inst;
+          ui.done();
+          return inst;
+        } finally {
+          off?.();
+        }
       } catch (err) {
         ui.error(err);
         return null;
@@ -54,7 +70,7 @@ async function ensure(name) {
 }
 
 async function show(name) {
-  if (!DEMOS[name]) name = 'balance';
+  if (!DEMOS[name]) name = DEFAULT_DEMO;
   for (const tab of document.querySelectorAll('.tab')) {
     const on = tab.dataset.demo === name;
     tab.setAttribute('aria-selected', String(on));
@@ -89,7 +105,7 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', (
   for (const inst of Object.values(instances)) inst?.applyTheme?.();
 });
 
-show(location.hash.slice(1) || 'balance');
+show(location.hash.slice(1) || DEFAULT_DEMO);
 
 // test hook (Playwright): expose demo instances
 window.__demo = { instances, show };

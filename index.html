@@ -19,60 +19,14 @@
       <span>MuJoCo in the browser</span>
     </div>
     <nav class="tabs" role="tablist" aria-label="Demos">
-      <button class="tab" role="tab" id="tab-balance" data-demo="balance" aria-controls="panel-balance" aria-selected="true">Humanoid balance</button>
-      <button class="tab" role="tab" id="tab-pick" data-demo="pick" aria-controls="panel-pick" aria-selected="false" tabindex="-1">Policy pick-and-place</button>
+      <button class="tab" role="tab" id="tab-pick" data-demo="pick" aria-controls="panel-pick" aria-selected="true">Policy pick-and-place</button>
+      <button class="tab" role="tab" id="tab-balance" data-demo="balance" aria-controls="panel-balance" aria-selected="false" tabindex="-1">Humanoid balance</button>
     </nav>
   </header>
 
   <main>
-    <!-- ───────────────────────── Tab 1: G1 balance ───────────────────────── -->
-    <section class="demo" id="panel-balance" role="tabpanel" aria-labelledby="tab-balance">
-      <div class="stage">
-        <div class="viewport" id="balance-view"></div>
-        <div class="hud">
-          <span class="chip" id="balance-status" data-state="loading">Loading…</span>
-          <span class="chip mono" id="balance-force" hidden>0 N</span>
-        </div>
-        <p class="hint"><span class="long">Drag the robot to push it · drag the background to orbit</span><span class="short">Drag robot to push · drag background to orbit</span></p>
-        <div class="loading" id="balance-loading"><div class="bar"><span></span></div><p>Loading MuJoCo…</p></div>
-      </div>
-      <aside class="panel">
-        <h1>Unitree G1 · standing balance</h1>
-        <p class="lede">The 29-DoF G1 from MuJoCo Menagerie, simulated at 500&nbsp;Hz by MuJoCo compiled to WebAssembly. A capture-point balance controller written in JavaScript keeps it upright while you shove it around.</p>
-        <div class="controls">
-          <button class="btn primary" id="balance-push" type="button">Random push</button>
-          <button class="btn" id="balance-reset" type="button">Reset</button>
-          <label class="switch">
-            <input type="checkbox" id="balance-toggle" checked>
-            <span class="track" aria-hidden="true"></span>
-            <span>Balance controller</span>
-          </label>
-        </div>
-        <dl class="stats">
-          <div><dt>Capture-point error</dt><dd class="mono" id="balance-cp">–</dd></div>
-          <div><dt>Pelvis height</dt><dd class="mono" id="balance-height">–</dd></div>
-          <div><dt>Sim speed</dt><dd class="mono" id="balance-speed">–</dd></div>
-        </dl>
-        <div class="legend">
-          <span><i class="sw sw-poly"></i>support polygon</span>
-          <span><i class="sw sw-cp"></i>capture point</span>
-          <span><i class="sw sw-com"></i>COM</span>
-        </div>
-        <details>
-          <summary>How it works</summary>
-          <p>Every physics step the controller computes the whole-body centre of mass <em>c</em>, its velocity <em>v</em> and the
-            capture point <em>ξ = c + v/ω</em> with <em>ω = √(g/z)</em> — where the robot would have to step to come to rest.
-            The error between <em>ξ</em> and the centre of the feet drives an <strong>ankle strategy</strong> (shift the centre of
-            pressure) and a <strong>hip strategy</strong> (swing the trunk, keep the pelvis level) as offsets on a slightly
-            crouched posture; the Menagerie position servos turn those into torques.</p>
-          <p>Gains were tuned offline by random search on a push benchmark (<code>tests/balance_bench.mjs</code>). Switch the
-            controller off to compare with the servos just holding Menagerie's <code>stand</code> keyframe.</p>
-        </details>
-      </aside>
-    </section>
-
-    <!-- ───────────────────── Tab 2: Franka pick-and-place ───────────────────── -->
-    <section class="demo" id="panel-pick" role="tabpanel" aria-labelledby="tab-pick" hidden>
+    <!-- ───────────────────── Tab 1: Franka pick-and-place ───────────────────── -->
+    <section class="demo" id="panel-pick" role="tabpanel" aria-labelledby="tab-pick">
       <div class="stage">
         <div class="viewport" id="pick-view"></div>
         <div class="hud">
@@ -118,6 +72,52 @@
           <p>The <strong>placeholder</strong> is a scripted controller compiled to ONNX ops that reads privileged object
             state instead of images. Any diffusion-pick export loads through <strong>Load .onnx…</strong> or
             <code>?policy=models/&lt;name&gt;.onnx</code>; inputs are matched by name.</p>
+        </details>
+      </aside>
+    </section>
+
+    <!-- ───────────────────────── Tab 2: G1 balance ───────────────────────── -->
+    <section class="demo" id="panel-balance" role="tabpanel" aria-labelledby="tab-balance" hidden>
+      <div class="stage">
+        <div class="viewport" id="balance-view"></div>
+        <div class="hud">
+          <span class="chip" id="balance-status" data-state="loading">Loading…</span>
+          <span class="chip mono" id="balance-force" hidden>0 N</span>
+        </div>
+        <p class="hint"><span class="long">Drag the robot to push it · drag the background to orbit</span><span class="short">Drag robot to push · drag background to orbit</span></p>
+        <div class="loading" id="balance-loading"><div class="bar"><span></span></div><p>Loading MuJoCo…</p></div>
+      </div>
+      <aside class="panel">
+        <h1>Unitree G1 · standing balance</h1>
+        <p class="lede">The 29-DoF G1 from MuJoCo Menagerie, simulated at 500&nbsp;Hz by MuJoCo compiled to WebAssembly. A capture-point balance controller written in JavaScript keeps it upright while you shove it around.</p>
+        <div class="controls">
+          <button class="btn primary" id="balance-push" type="button">Random push</button>
+          <button class="btn" id="balance-reset" type="button">Reset</button>
+          <label class="switch">
+            <input type="checkbox" id="balance-toggle" checked>
+            <span class="track" aria-hidden="true"></span>
+            <span>Balance controller</span>
+          </label>
+        </div>
+        <dl class="stats">
+          <div><dt>Capture-point error</dt><dd class="mono" id="balance-cp">–</dd></div>
+          <div><dt>Pelvis height</dt><dd class="mono" id="balance-height">–</dd></div>
+          <div><dt>Sim speed</dt><dd class="mono" id="balance-speed">–</dd></div>
+        </dl>
+        <div class="legend">
+          <span><i class="sw sw-poly"></i>support polygon</span>
+          <span><i class="sw sw-cp"></i>capture point</span>
+          <span><i class="sw sw-com"></i>COM</span>
+        </div>
+        <details>
+          <summary>How it works</summary>
+          <p>Every physics step the controller computes the whole-body centre of mass <em>c</em>, its velocity <em>v</em> and the
+            capture point <em>ξ = c + v/ω</em> with <em>ω = √(g/z)</em> — where the robot would have to step to come to rest.
+            The error between <em>ξ</em> and the centre of the feet drives an <strong>ankle strategy</strong> (shift the centre of
+            pressure) and a <strong>hip strategy</strong> (swing the trunk, keep the pelvis level) as offsets on a slightly
+            crouched posture; the Menagerie position servos turn those into torques.</p>
+          <p>Gains were tuned offline by random search on a push benchmark (<code>tests/balance_bench.mjs</code>). Switch the
+            controller off to compare with the servos just holding Menagerie's <code>stand</code> keyframe.</p>
         </details>
       </aside>
     </section>

@@ -1,21 +1,23 @@
 # mujoco-web-demo
 
+**Live demo: https://ansh1113.github.io/mujoco-web-demo/**
+
 MuJoCo physics running entirely in the browser via the official WebAssembly build. It is a static site:
 no backend and no build step, and every dependency is vendored.
 
 | Tab | What you can do |
 |---|---|
+| **Policy pick-and-place** (default) | A **Franka Panda** puts the red cube in the bowl. The task is the one from [diffusion-pick](https://github.com/ansh1113/diffusion-pick), driven by an **ONNX policy** through onnxruntime-web. The default is diffusion-pick's Diffusion Policy v2 (`dp_v2`), acting from the 64×64 camera images. The v1 policy (as exported, and fine-tuned on this page's renders) and a scripted placeholder are selectable. You can drag the cubes or the arm to disturb it. |
 | **Humanoid balance** | Click-drag (or touch-drag) the **Unitree G1** from MuJoCo Menagerie to shove it while a capture-point balance controller written in JavaScript keeps it standing. Toggle the controller off to compare with the bare position servos. |
-| **Policy pick-and-place** | A **Franka Panda** puts the red cube in the bowl. The task is the one from [diffusion-pick](https://github.com/ansh1113/diffusion-pick), driven by an **ONNX policy** through onnxruntime-web. The default is diffusion-pick's Diffusion Policy v2 (`dp_v2`), acting from the 64×64 camera images. The v1 policy (as exported, and fine-tuned on this page's renders) and a scripted placeholder are selectable. You can drag the cubes or the arm to disturb it. |
-
-![Humanoid balance tab: G1 being pulled by the torso, with the support polygon and capture point drawn on the floor](docs/screenshots/balance.jpg)
 
 ![Pick-and-place tab: Panda carrying the red cube, with the policy's 64x64 front and wrist camera views in the side panel](docs/screenshots/pick.jpg)
 
+![Humanoid balance tab: G1 being pulled by the torso, with the support polygon and capture point drawn on the floor](docs/screenshots/balance.jpg)
+
 <p align="center">
-  <img src="docs/screenshots/mobile-balance.jpg" width="270" alt="Balance tab on a phone">
-  &nbsp;&nbsp;
   <img src="docs/screenshots/mobile-pick.jpg" width="270" alt="Pick-and-place tab on a phone">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/mobile-balance.jpg" width="270" alt="Balance tab on a phone">
 </p>
 
 *Screenshots are written by the Playwright test (`npm test`) in headless Chromium with SwiftShader software WebGL.
@@ -27,50 +29,15 @@ That renderer is also why the "Sim speed" readout shows about 0.45× in them; on
 python3 -m http.server 8000
 ```
 
-Then open http://localhost:8000. Any static host works: GitHub Pages, Netlify, or `npx serve`. The tab state is
-kept in the URL hash (`#balance`, `#pick`).
+Then open http://localhost:8000. Any static host works: GitHub Pages, Netlify, or `npx serve`. The page opens on
+the pick-and-place tab; the tab is kept in the URL hash (`#pick`, `#balance`), so `…/#balance` links straight to
+the humanoid.
 
-To deploy on GitHub Pages, go to Settings → Pages and set the source to the default branch, root folder. No
-cross-origin-isolation headers are needed because the single-threaded MuJoCo and onnxruntime builds are used.
+The live site is GitHub Pages deploying `main` from the repository root. `.nojekyll` turns off Pages' Jekyll step,
+since this is a plain static site. No cross-origin-isolation headers are needed because the single-threaded
+MuJoCo and onnxruntime builds are used.
 
-## Tab 1: Unitree G1 balance
-
-* **Model.** `assets/g1/g1.xml` is Menagerie's 29-DoF G1, unmodified. Its meshes are decimated from 393k to 45k
-  triangles (`tools/build_g1_assets.py`), which cuts them from 20 MB to 2 MB. The masses and inertias are explicit
-  in the MJCF, and the build script asserts that they are identical to Menagerie's.
-* **Perturbation.** Grab any body to drag it with a damped spring (capped at 160 N), applied through
-  `xfrc_applied` at the body's centre of mass, with the matching torque for an off-centre grab. *Random push*
-  applies 130 N for 0.1 s to the torso.
-* **Controller** (`js/g1/balance.js`, about 150 lines). It runs every 2 ms physics step:
-  * It computes the whole-body COM *c*, the COM velocity *v* and the capture point *ξ = c + v/ω*, with *ω = √(g/z)*.
-  * The capture-point error relative to the foot-support centre, taken in the robot's heading frame, drives an
-    **ankle strategy** (ankle pitch/roll offsets that move the centre of pressure).
-  * It also drives a **hip strategy**: hip pitch/roll offsets from the CP error plus pelvis tilt and rate.
-  * A waist term keeps the torso upright.
-  * The offsets are added to a slightly crouched posture, and Menagerie's position servos (kp = 500, critically
-    damped) turn them into torques.
-* **Tuning.** Gains were found by random search in Python MuJoCo 3.17 (the same engine version as the WASM build)
-  on a push benchmark. The JS port reproduces the Python numbers.
-
-`npm run bench` (`tests/balance_bench.mjs`) runs this benchmark headless in Node, with the shipped JS controller
-and the shipped WASM build. Each value is the largest 0.1 s push on the torso that the robot survives:
-
-| Direction | Servos holding Menagerie `stand` keyframe | Balance controller |
-|---|---:|---:|
-| forward | 50 N | **250 N** |
-| backward | 38 N | **113 N** |
-| left / right | 144 N | **169 N** |
-| forward-left | 69 N | **219 N** |
-| back-left | 56 N | **169 N** |
-
-**Limits.** This is a standing controller and it does not take steps. A sustained sideways pull of about 50 N
-needs more centre-of-pressure shift than the 30 cm stance allows, so the robot tips onto one foot and pivots or
-falls. The page auto-resets 1.8 s after a fall. Capture-point stepping is the natural next step. A first
-IK-based stepping attempt was not shipped: it lifted the swing foot without first shifting weight onto the stance
-foot, so the robot rolled toward the unsupported side and forward push tolerance dropped from 250 N to 56 N. A real
-stepping controller needs a weight-shift phase before lift-off.
-
-## Tab 2: Franka pick-and-place with an ONNX policy
+## Tab 1: Franka pick-and-place with an ONNX policy
 
 * **Scene.** `assets/franka/pick_scene.xml` is produced by diffusion-pick's own `dpick.env.build_model()`
   (`tools/build_franka_scene.py` serializes the `MjSpec`). It has the same Panda with the lite visual meshes, the
@@ -85,6 +52,11 @@ stepping controller needs a weight-shift phase before lift-off.
     8 steps, i.e. 0.8 s.
   * Physics pauses while inference is in flight.
   * Episodes time out after 200 steps (20 s). After a success, a new random layout starts.
+* **Loading.** The default policy is the page's largest download (27 MB). When the page opens on this tab,
+  `js/main.js` starts that download first, in parallel with MuJoCo's WASM, and the overlay shows
+  "Loading policy (27 MB)… x / 27 MB" (`js/franka/fetch-model.js`). onnxruntime's own WASM is warmed up at the
+  same time, so the policy starts as soon as its bytes arrive. Visitors who open `#balance` don't download it.
+  Switching models in the picker shows the same progress in the status chip.
 * **Observations.** Proprio is read from MuJoCo. `front_rgb` and `wrist_rgb` are 64×64 renders of the MJCF cameras.
   They are read back asynchronously into the uint8 `[1, To, 3, 64, 64]` layout diffusion-pick uses, and shown in
   the side panel as "what the policy sees".
@@ -189,6 +161,43 @@ The v2 MuJoCo-render figures are from diffusion-pick's `claude/dp-v2-recovery-au
 code diff touches only training (training-only distractor pool, stronger augmentation, recovery expert); the
 test env, action semantics and proprio are unchanged, so this page's JS env port applies to v2 as-is.
 
+## Tab 2: Unitree G1 balance
+
+* **Model.** `assets/g1/g1.xml` is Menagerie's 29-DoF G1, unmodified. Its meshes are decimated from 393k to 45k
+  triangles (`tools/build_g1_assets.py`), which cuts them from 20 MB to 2 MB. The masses and inertias are explicit
+  in the MJCF, and the build script asserts that they are identical to Menagerie's.
+* **Perturbation.** Grab any body to drag it with a damped spring (capped at 160 N), applied through
+  `xfrc_applied` at the body's centre of mass, with the matching torque for an off-centre grab. *Random push*
+  applies 130 N for 0.1 s to the torso.
+* **Controller** (`js/g1/balance.js`, about 150 lines). It runs every 2 ms physics step:
+  * It computes the whole-body COM *c*, the COM velocity *v* and the capture point *ξ = c + v/ω*, with *ω = √(g/z)*.
+  * The capture-point error relative to the foot-support centre, taken in the robot's heading frame, drives an
+    **ankle strategy** (ankle pitch/roll offsets that move the centre of pressure).
+  * It also drives a **hip strategy**: hip pitch/roll offsets from the CP error plus pelvis tilt and rate.
+  * A waist term keeps the torso upright.
+  * The offsets are added to a slightly crouched posture, and Menagerie's position servos (kp = 500, critically
+    damped) turn them into torques.
+* **Tuning.** Gains were found by random search in Python MuJoCo 3.17 (the same engine version as the WASM build)
+  on a push benchmark. The JS port reproduces the Python numbers.
+
+`npm run bench` (`tests/balance_bench.mjs`) runs this benchmark headless in Node, with the shipped JS controller
+and the shipped WASM build. Each value is the largest 0.1 s push on the torso that the robot survives:
+
+| Direction | Servos holding Menagerie `stand` keyframe | Balance controller |
+|---|---:|---:|
+| forward | 50 N | **250 N** |
+| backward | 38 N | **113 N** |
+| left / right | 144 N | **169 N** |
+| forward-left | 69 N | **219 N** |
+| back-left | 56 N | **169 N** |
+
+**Limits.** This is a standing controller and it does not take steps. A sustained sideways pull of about 50 N
+needs more centre-of-pressure shift than the 30 cm stance allows, so the robot tips onto one foot and pivots or
+falls. The page auto-resets 1.8 s after a fall. Capture-point stepping is the natural next step. A first
+IK-based stepping attempt was not shipped: it lifted the swing foot without first shifting weight onto the stance
+foot, so the robot rolled toward the unsupported side and forward push tolerance dropped from 250 N to 56 N. A real
+stepping controller needs a weight-shift phase before lift-off.
+
 ## Tests
 
 ```bash
@@ -198,20 +207,23 @@ npm test
 This runs `tests/e2e.cjs` with Playwright and headless Chromium, using SwiftShader WebGL. The test:
 
 * serves the site statically;
-* checks that the G1 stands, survives a 130 N push with the controller on and falls without it;
-* performs a real mouse drag on the torso and checks that grab and release work;
-* switches tabs and checks that the hidden tab's loop stops;
+* checks that the page opens on pick-and-place (the first tab), with no `#hash` and the balance tab not loaded;
+* checks that the overlay shows "Loading policy (27 MB)… x / 27 MB", and that `dp_v2.onnx` is downloaded exactly
+  once, starting together with MuJoCo's WASM;
 * checks that the default is the image-based Diffusion Policy, waits for it to put the cube in the bowl, and checks
   that the 64×64 policy views render;
 * switches the picker to the placeholder and waits for it to complete an episode;
 * loads diffusion-pick's `dp_reduced.onnx` through the file input and checks that it runs 20 control steps
   without errors;
-* repeats the drag and tab checks on an iPhone 13 viewport, with touch drag and a check for horizontal overflow;
+* switches to the balance tab (which sets `#balance` and stops the pick tab's loop), checks that the G1 stands,
+  survives a 130 N push with the controller on and falls without it, and does a real mouse drag on the torso;
+* opens `#balance` directly (no policy is downloaded) and an unknown `#hash` (falls back to pick-and-place);
+* repeats both tabs on an iPhone 13 viewport, with touch drag and a check for horizontal overflow;
 * **fails on any console error or warning, page error, failed request or HTTP 4xx/5xx**;
 * rewrites the screenshots in `docs/screenshots/`.
 
 Set `SCREENSHOTS=0` to keep the screenshots, or `DPICK_ONNX=…` to point it at another export. On the last run all
-21 checks passed with 0 console messages.
+30 checks passed with 0 console messages.
 
 ```bash
 npm run bench
@@ -228,8 +240,8 @@ js/runtime.js                  MuJoCo WASM loader (manifest -> virtual FS -> MjM
 js/viewer.js                   three.js scene built from MjModel geoms/meshes, synced from geom_xpos/xmat
 js/perturb.js                  click/touch-drag spring perturbation via xfrc_applied
 js/loop.js                     rAF loop that tracks wall-clock time (slow devices degrade to slow motion)
-js/g1/                         balance controller + tab 1
-js/franka/                     env port, ONNX policy runner, policy cameras, policy slot, tab 2
+js/g1/                         balance controller + tab 2
+js/franka/                     env port, ONNX policy runner + early download, policy cameras, policy slot, tab 1
 assets/g1, assets/franka       MJCF + meshes (+ manifest.json for the virtual FS)
 models/                        dp_v2 (default), dp_browser, dp_reduced, placeholder (+ slot docs)
 results/                       browser evaluations (per-episode JSON); tools/compare_evals.py pairs them
@@ -257,3 +269,8 @@ python tools/make_manifests.py
   Their licenses are copied next to the assets: `assets/g1/LICENSE.menagerie`, `assets/franka/LICENSE.menagerie-panda`.
 * [three.js](https://threejs.org) (MIT) and [onnxruntime-web](https://onnxruntime.ai) (MIT)
 * Task, scene and policy export from [diffusion-pick](https://github.com/ansh1113/diffusion-pick)
+
+## License
+
+The code in this repository is MIT-licensed, see [`LICENSE`](LICENSE). Vendored libraries (`vendor/`) and the
+Menagerie robot models (`assets/`) keep their own licenses, listed in `vendor/README.md` and next to the assets.

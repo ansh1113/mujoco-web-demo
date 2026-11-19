@@ -1,4 +1,4 @@
-// Tab 2: Franka Panda pick-and-place driven by an ONNX policy (onnxruntime-web).
+// Tab 1: Franka Panda pick-and-place driven by an ONNX policy (onnxruntime-web).
 import { Rng } from '../runtime.js';
 import { Perturb } from '../perturb.js';
 import { SimLoop } from '../loop.js';
@@ -6,6 +6,7 @@ import { PickEnv } from './env.js';
 import { OnnxPolicy } from './policy.js';
 import { loadPickScene, createPickViewer } from './scene.js';
 import { POLICY_SLOT, POLICY_CHOICES } from './policy-slot.js';
+import { takeModel, initialPolicyUrl, describe } from './fetch-model.js';
 
 const $ = (id) => document.getElementById(id);
 const MAX_STEPS = 200;     // 20 s at 10 Hz, as in diffusion-pick's evaluation
@@ -17,8 +18,18 @@ async function loadOrt() {
   ort.env.wasm.numThreads = 1;   // no cross-origin isolation on static hosts
   ort.env.wasm.proxy = false;
   ort.env.logLevel = 'error';
+  // onnxruntime fetches and compiles its own 12 MB WASM on the first session. Create a throwaway
+  // session from the tiny placeholder now, so that happens while the 27 MB policy is downloading.
+  try {
+    const res = await fetch(new URL('../../models/placeholder_pick.onnx', import.meta.url));
+    const warm = await ort.InferenceSession.create(new Uint8Array(await res.arrayBuffer()));
+    await warm.release();
+  } catch { /* the real session create will surface any problem */ }
   return ort;
 }
+
+// Start as soon as this module is imported (in parallel with MuJoCo), not after the scene loads.
+const ortReady = loadOrt();
 
 /** Fill in obs/pred horizons from the graph's input shapes when no metadata JSON is available. */
 function inferMeta(session) {
@@ -36,11 +47,8 @@ function inferMeta(session) {
 }
 
 export async function createPickDemo({ mj, ui }) {
-  ui.progress(0.25, 'Loading Franka scene + onnxruntime-web…');
-  const [{ model, data }, ort] = await Promise.all([
-    loadPickScene(mj, 'assets/franka', (f) => ui.progress(0.25 + 0.5 * f)),
-    loadOrt(),
-  ]);
+  // (the loading overlay shows the policy download, started in js/main.js; the scene is small)
+  const [{ model, data }, ort] = await Promise.all([loadPickScene(mj, 'assets/franka'), ortReady]);
   const env = new PickEnv(mj, model, data, { maxSteps: MAX_STEPS });
 
   const { viewer, cams } = createPickViewer($('pick-view'), model, data);
@@ -52,16 +60,21 @@ export async function createPickDemo({ mj, ui }) {
   const thumbs = { front: $('pick-front').getContext('2d'), wrist: $('pick-wrist').getContext('2d') };
 
   // ── policy slot
-  const params = new URLSearchParams(location.search);
   let policy = null;
   let policyError = null;
   const rng = new Rng(Date.now() & 0xffff);
 
-  async function setPolicy(src, label, meta = null) {
+  async function setPolicy(src, label) {
     setStatus('Loading policy…', 'busy');
     try {
-      const p = await OnnxPolicy.load(ort, src, meta, label);
-      if (!meta && !Object.keys(p.meta).some((k) => k === 'policy')) Object.assign(p.meta, inferMeta(p.session));
+      let bytes = src, meta = null;
+      if (typeof src === 'string') {
+        const job = takeModel(src); // joins the early download if it's already running
+        const off = job.onProgress((s) => setStatus(describe(s), 'busy'));
+        try { ({ bytes, meta } = await job.promise); } finally { off(); }
+      }
+      const p = await OnnxPolicy.load(ort, bytes, meta, label);
+      if (!p.meta.policy) Object.assign(p.meta, inferMeta(p.session)); // no metadata JSON (e.g. a local file)
       await policy?.dispose();
       policy = p;
       policyError = null;
@@ -223,10 +236,8 @@ export async function createPickDemo({ mj, ui }) {
     if (c) setPolicy(c.url, c.label);
   });
 
-  ui.progress(0.85, 'Loading policy…');
-  const fromUrl = params.get('policy');
-  if (fromUrl) await setPolicy(fromUrl, fromUrl.split('/').pop());
-  else await setPolicy(POLICY_SLOT.url, POLICY_SLOT.label);
+  const first = initialPolicyUrl();
+  await setPolicy(first, first === POLICY_SLOT.url ? POLICY_SLOT.label : first.split('/').pop());
 
   return {
     start: () => loop.start(),

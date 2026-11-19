@@ -49,6 +49,17 @@ function bodyScreen(page, demo, body) {
   }, [demo, body]);
 }
 
+/** Runs in the page before its scripts: records every text the pick tab's loading overlay shows. */
+function recordOverlay() {
+  window.__overlayTexts = [];
+  document.addEventListener('DOMContentLoaded', () => {
+    const p = document.querySelector('#pick-loading p');
+    const log = () => window.__overlayTexts.push(p.textContent);
+    log();
+    new MutationObserver(log).observe(p, { childList: true, characterData: true, subtree: true });
+  });
+}
+
 async function main() {
   const server = await serve(ROOT);
   const base = `http://127.0.0.1:${server.address().port}/`;
@@ -65,10 +76,80 @@ async function main() {
     const ctx = await browser.newContext({ viewport: { width: 1360, height: 860 }, deviceScaleFactor: 2 });
     const page = await ctx.newPage();
     watch(page, 'desktop', problems);
+    const requests = [];
+    const tNav = Date.now();
+    page.on('request', (r) => requests.push({ url: r.url(), t: Date.now() - tNav }));
+    await page.addInitScript(recordOverlay);
     await page.goto(base);
 
-    console.log('Tab 1 · G1 balance');
+    console.log('Tab 1 · Franka pick-and-place (default)');
+    await page.waitForFunction(() => window.__demo?.instances?.pick?.debug.policy, null, { timeout: 120000 });
+    const tabs = await page.evaluate(() => ({
+      order: [...document.querySelectorAll('.tab')].map((t) => t.dataset.demo),
+      selected: document.querySelector('.tab[aria-selected="true"]').dataset.demo,
+      hash: location.hash, balanceLoaded: !!window.__demo.instances.balance }));
+    check(tabs.order.join(',') === 'pick,balance', `pick-and-place is the first tab (order: ${tabs.order.join(', ')})`);
+    check(tabs.selected === 'pick' && tabs.hash === '' && await page.isHidden('#panel-balance'),
+      'with no #hash the page opens on pick-and-place');
+    check(!tabs.balanceLoaded, 'the balance tab is not loaded until it is opened');
+    const overlay = await page.evaluate(() => [...new Set(window.__overlayTexts)]);
+    check(overlay.some((t) => /^Loading policy \(27 MB\)… [\d.]+ \/ 27 MB$/.test(t)),
+      `loading overlay shows the policy download ("${overlay.find((t) => t.startsWith('Loading policy (27 MB)')) || overlay[0]}")`);
+    const dpReqs = requests.filter((r) => r.url.endsWith('/models/dp_v2.onnx'));
+    const mjReq = requests.find((r) => r.url.endsWith('/mujoco.wasm'));
+    check(dpReqs.length === 1, `dp_v2.onnx is downloaded exactly once (${dpReqs.length} request(s))`);
+    check(dpReqs.length && mjReq && dpReqs[0].t <= mjReq.t + 250,
+      `dp_v2.onnx download starts with MuJoCo's WASM, not after it (${dpReqs[0]?.t - mjReq?.t} ms apart)`);
+    const io = await page.textContent('#pick-io');
+    check(io.includes('front_rgb') && io.includes('wrist_rgb') && io.includes('actions[1,16,5]'),
+      `default policy is the image-based Diffusion Policy: ${io}`);
+    const slot = await page.evaluate(async () => (await import('/js/franka/policy-slot.js')).POLICY_SLOT.url);
+    check(await page.inputValue('#pick-select') === slot, `policy picker shows the default slot (${slot})`);
+    // wait for a carry, take the screenshot, then wait for the first success
+    await page.waitForFunction(() => window.__demo.instances.pick.debug.env.cubePos()[2] > 0.09,
+      null, { timeout: 240000, polling: 50 });
+    await page.waitForTimeout(300);
+    await shot(page, 'pick.jpg');
+    await page.waitForFunction(() => window.__demo.instances.pick.debug.score.ok >= 1, null, { timeout: 240000 });
+    const sc = await page.evaluate(() => window.__demo.instances.pick.debug.score);
+    check(sc.ok >= 1, `Diffusion Policy puts the red cube in the bowl from pixels (score ${sc.ok}/${sc.n})`);
+    const thumbs = await page.evaluate(() => ['pick-front', 'pick-wrist'].map((id) => {
+      const c = document.getElementById(id).getContext('2d').getImageData(0, 0, 64, 64).data;
+      let s = 0; for (let i = 0; i < c.length; i += 4) s += c[i] + c[i + 1] + c[i + 2];
+      return s / (64 * 64 * 3);
+    }));
+    check(thumbs.every((m) => m > 10), `64x64 policy camera views are rendered (mean intensity ${thumbs.map((m) => m.toFixed(0)).join(', ')})`);
+
+    console.log('Policy picker · placeholder');
+    await page.selectOption('#pick-select', 'models/placeholder_pick.onnx');
+    await page.waitForFunction(() => window.__demo.instances.pick.debug.policy?.inputs.includes('object_state'), null, { timeout: 60000 });
+    await page.waitForFunction(() => window.__demo.instances.pick.debug.score.ok >= 1, null, { timeout: 120000 });
+    check(true, 'switching to the placeholder works and it completes an episode');
+
+    if (fs.existsSync(DP_ONNX)) {
+      console.log(`Policy slot · ${path.basename(DP_ONNX)} (diffusion-pick export)`);
+      await page.setInputFiles('#pick-file', DP_ONNX);
+      await page.waitForFunction(() => window.__demo.instances.pick.debug.policy?.label.endsWith('.onnx'), null, { timeout: 60000 });
+      const t0 = await page.evaluate(() => window.__demo.instances.pick.debug.env.t);
+      await page.waitForFunction((t) => window.__demo.instances.pick.debug.env.t >= t + 20, t0, { timeout: 120000 });
+      const r = await page.evaluate(() => {
+        const { policy, error } = window.__demo.instances.pick.debug;
+        return { inputs: policy.inputs, ms: policy.lastMs, error: error && error.message, meta: policy.meta };
+      });
+      check(!r.error, `dp_reduced.onnx runs in the slot without errors (inputs: ${r.inputs.join(', ')})`);
+      check(r.inputs.includes('front_rgb') && r.meta.obs_horizon === 2 && r.meta.pred_horizon === 16,
+        `metadata inferred from the graph (To=${r.meta.obs_horizon}, Tp=${r.meta.pred_horizon}, img=${r.meta.img_size})`);
+      console.log(`       (WASM inference ${r.ms.toFixed(0)} ms per chunk in headless SwiftShader Chromium)`);
+    } else {
+      console.log(`  skip  dp_reduced.onnx not found at ${DP_ONNX}`);
+    }
+
+    console.log('Tab 2 · G1 balance');
+    await page.click('#tab-balance');
     await page.waitForFunction(() => window.__demo?.instances?.balance, null, { timeout: 60000 });
+    check(await page.isHidden('#panel-pick') && await page.evaluate(() => location.hash === '#balance'),
+      'tab switch hides pick-and-place and sets #balance');
+    check(await page.evaluate(() => !window.__demo.instances.pick.debug.loop.running), 'the hidden tab\'s loop stops');
     await waitSim(page, 'balance', 1.0);
     check(await page.evaluate(() => window.__demo.instances.balance.debug.data.qpos[2] > 0.7), 'G1 stands after load');
     const status = await page.textContent('#balance-status');
@@ -115,55 +196,28 @@ async function main() {
     check(after.z > 0.7, `still standing after the drag (pelvis z = ${after.z.toFixed(2)})`);
     console.log(`       (pelvis moved ${(100 * Math.abs(after.x - x0)).toFixed(1)} cm)`);
 
-    console.log('Tab 2 · Franka pick-and-place');
-    await page.click('#tab-pick');
-    await page.waitForFunction(() => window.__demo.instances.pick?.debug.policy, null, { timeout: 60000 });
-    check(await page.isHidden('#panel-balance'), 'tab switch hides tab 1');
-    check(await page.evaluate(() => !window.__demo.instances.balance.debug.loop.running), 'tab 1 loop stops when hidden');
-    const io = await page.textContent('#pick-io');
-    check(io.includes('front_rgb') && io.includes('wrist_rgb') && io.includes('actions[1,16,5]'),
-      `default policy is the image-based Diffusion Policy: ${io}`);
-    const slot = await page.evaluate(async () => (await import('/js/franka/policy-slot.js')).POLICY_SLOT.url);
-    check(await page.inputValue('#pick-select') === slot, `policy picker shows the default slot (${slot})`);
-    // wait for a carry, take the screenshot, then wait for the first success
-    await page.waitForFunction(() => window.__demo.instances.pick.debug.env.cubePos()[2] > 0.09,
-      null, { timeout: 240000, polling: 50 });
-    await page.waitForTimeout(300);
-    await shot(page, 'pick.jpg');
-    await page.waitForFunction(() => window.__demo.instances.pick.debug.score.ok >= 1, null, { timeout: 240000 });
-    const sc = await page.evaluate(() => window.__demo.instances.pick.debug.score);
-    check(sc.ok >= 1, `Diffusion Policy puts the red cube in the bowl from pixels (score ${sc.ok}/${sc.n})`);
-    const thumbs = await page.evaluate(() => ['pick-front', 'pick-wrist'].map((id) => {
-      const c = document.getElementById(id).getContext('2d').getImageData(0, 0, 64, 64).data;
-      let s = 0; for (let i = 0; i < c.length; i += 4) s += c[i] + c[i + 1] + c[i + 2];
-      return s / (64 * 64 * 3);
-    }));
-    check(thumbs.every((m) => m > 10), `64x64 policy camera views are rendered (mean intensity ${thumbs.map((m) => m.toFixed(0)).join(', ')})`);
-
-    console.log('Policy picker · placeholder');
-    await page.selectOption('#pick-select', 'models/placeholder_pick.onnx');
-    await page.waitForFunction(() => window.__demo.instances.pick.debug.policy?.inputs.includes('object_state'), null, { timeout: 60000 });
-    await page.waitForFunction(() => window.__demo.instances.pick.debug.score.ok >= 1, null, { timeout: 120000 });
-    check(true, 'switching to the placeholder works and it completes an episode');
-
-    if (fs.existsSync(DP_ONNX)) {
-      console.log(`Policy slot · ${path.basename(DP_ONNX)} (diffusion-pick export)`);
-      await page.setInputFiles('#pick-file', DP_ONNX);
-      await page.waitForFunction(() => window.__demo.instances.pick.debug.policy?.label.endsWith('.onnx'), null, { timeout: 60000 });
-      const t0 = await page.evaluate(() => window.__demo.instances.pick.debug.env.t);
-      await page.waitForFunction((t) => window.__demo.instances.pick.debug.env.t >= t + 20, t0, { timeout: 120000 });
-      const r = await page.evaluate(() => {
-        const { policy, error } = window.__demo.instances.pick.debug;
-        return { inputs: policy.inputs, ms: policy.lastMs, error: error && error.message, meta: policy.meta };
-      });
-      check(!r.error, `dp_reduced.onnx runs in the slot without errors (inputs: ${r.inputs.join(', ')})`);
-      check(r.inputs.includes('front_rgb') && r.meta.obs_horizon === 2 && r.meta.pred_horizon === 16,
-        `metadata inferred from the graph (To=${r.meta.obs_horizon}, Tp=${r.meta.pred_horizon}, img=${r.meta.img_size})`);
-      console.log(`       (WASM inference ${r.ms.toFixed(0)} ms per chunk in headless SwiftShader Chromium)`);
-    } else {
-      console.log(`  skip  dp_reduced.onnx not found at ${DP_ONNX}`);
-    }
     await ctx.close();
+
+    // ─────────────────────────── direct links ───────────────────────────
+    console.log('Direct links');
+    const lctx = await browser.newContext({ viewport: { width: 1200, height: 800 } });
+    const lp = await lctx.newPage();
+    watch(lp, 'links', problems);
+    const lreqs = [];
+    lp.on('request', (r) => lreqs.push(r.url()));
+    await lp.goto(`${base}#balance`);
+    await lp.waitForFunction(() => window.__demo?.instances?.balance?.debug.data.time > 1, null, { timeout: 60000 });
+    check(await lp.evaluate(() => document.querySelector('.tab[aria-selected="true"]').dataset.demo === 'balance'
+      && !window.__demo.instances.pick), '#balance opens the humanoid tab directly');
+    check(!lreqs.some((u) => u.endsWith('.onnx')), '#balance does not download any policy');
+    await lp.close();
+    const lp2 = await lctx.newPage(); // fresh page: a same-page hash change would start (then abort) loads
+    watch(lp2, 'links', problems);
+    await lp2.goto(`${base}#no-such-tab`);
+    await lp2.waitForFunction(() => window.__demo?.instances?.pick?.debug.policy, null, { timeout: 120000 });
+    check(await lp2.evaluate(() => document.querySelector('.tab[aria-selected="true"]').dataset.demo) === 'pick',
+      'an unknown #hash falls back to pick-and-place');
+    await lctx.close();
 
     // ───────────────────────────── mobile ─────────────────────────────
     console.log('Mobile (iPhone 13 viewport)');
@@ -171,10 +225,16 @@ async function main() {
     const m = await mctx.newPage();
     watch(m, 'mobile', problems);
     await m.goto(base);
+    await m.waitForFunction(() => window.__demo?.instances?.pick?.debug.policy, null, { timeout: 120000 });
+    await m.waitForFunction(() => window.__demo.instances.pick.debug.env.cubePos()[2] > 0.08, null, { timeout: 240000, polling: 50 });
+    const overflow = await m.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    check(overflow <= 0, `no horizontal scroll on pick-and-place (overflow ${overflow}px)`);
+    await shot(m, 'mobile-pick.jpg');
+    await m.tap('#tab-balance');
     await m.waitForFunction(() => window.__demo?.instances?.balance, null, { timeout: 60000 });
     await waitSim(m, 'balance', 1.0);
-    const overflow = await m.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-    check(overflow <= 0, `no horizontal scroll (overflow ${overflow}px)`);
+    const overflow2 = await m.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    check(overflow2 <= 0, `no horizontal scroll on balance (overflow ${overflow2}px)`);
     // touch drag on the torso
     const tp = await bodyScreen(m, 'balance', 'torso_link');
     const cdp = await mctx.newCDPSession(m);
@@ -189,12 +249,6 @@ async function main() {
     check(await m.evaluate(() => { const { ctl, data } = window.__demo.instances.balance.debug; return !ctl.fallen(data); }),
       'still standing after the touch drag');
     await shot(m, 'mobile-balance.jpg');
-    await m.tap('#tab-pick');
-    await m.waitForFunction(() => window.__demo.instances.pick?.debug.policy, null, { timeout: 60000 });
-    await m.waitForFunction(() => window.__demo.instances.pick.debug.env.cubePos()[2] > 0.08, null, { timeout: 240000, polling: 50 });
-    const overflow2 = await m.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-    check(overflow2 <= 0, `no horizontal scroll on tab 2 (overflow ${overflow2}px)`);
-    await shot(m, 'mobile-pick.jpg');
     await mctx.close();
   } finally {
     await browser.close();

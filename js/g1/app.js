@@ -1,4 +1,4 @@
-// Tab 1: Unitree G1 standing balance with click-drag perturbations.
+// Tab 2: Unitree G1 standing balance with click-drag perturbations.
 import * as THREE from 'three';
 import { loadScene } from '../runtime.js';
 import { Viewer } from '../viewer.js';
