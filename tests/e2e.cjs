@@ -12,6 +12,7 @@ const ROOT = path.resolve(__dirname, '..');
 const SHOTS = path.join(ROOT, 'docs', 'screenshots');
 const DP_ONNX = process.env.DPICK_ONNX || path.resolve(ROOT, '..', 'diffusion-pick', 'exports', 'dp_reduced.onnx');
 const WRITE_SHOTS = process.env.SCREENSHOTS !== '0';
+const EPISODE_TIMEOUT = 900000; // ms: one failed (~270 s) + one successful episode in headless SwiftShader
 const { serve, CHROMIUM_ARGS } = require('../tools/static-server.cjs');
 
 let failures = 0;
@@ -95,6 +96,8 @@ async function main() {
     const overlay = await page.evaluate(() => [...new Set(window.__overlayTexts)]);
     check(overlay.some((t) => /^Loading policy \(27 MB\)… [\d.]+ \/ 27 MB$/.test(t)),
       `loading overlay shows the policy download ("${overlay.find((t) => t.startsWith('Loading policy (27 MB)')) || overlay[0]}")`);
+    const isPlaceholder = (r) => r.url.endsWith('/models/placeholder_pick.onnx');
+    check(!requests.some(isPlaceholder), 'placeholder_pick.onnx is not downloaded on page load');
     const dpReqs = requests.filter((r) => r.url.endsWith('/models/dp_v2.onnx'));
     const mjReq = requests.find((r) => r.url.endsWith('/mujoco.wasm'));
     check(dpReqs.length === 1, `dp_v2.onnx is downloaded exactly once (${dpReqs.length} request(s))`);
@@ -105,14 +108,16 @@ async function main() {
       `default policy is the image-based Diffusion Policy: ${io}`);
     const slot = await page.evaluate(async () => (await import('/js/franka/policy-slot.js')).POLICY_SLOT.url);
     check(await page.inputValue('#pick-select') === slot, `policy picker shows the default slot (${slot})`);
-    // wait for a carry, take the screenshot, then wait for the first success
+    // Wait for a carry, take the screenshot, then wait for the first success. The policy is stochastic
+    // and fails ~10% of layouts; a failed episode is 200 control steps, which headless SwiftShader runs
+    // at ~0.75 steps/s (~270 s). EPISODE_TIMEOUT covers a failed episode followed by a successful one.
     await page.waitForFunction(() => window.__demo.instances.pick.debug.env.cubePos()[2] > 0.09,
-      null, { timeout: 240000, polling: 50 });
+      null, { timeout: EPISODE_TIMEOUT, polling: 50 });
     await page.waitForTimeout(300);
     await shot(page, 'pick.jpg');
-    await page.waitForFunction(() => window.__demo.instances.pick.debug.score.ok >= 1, null, { timeout: 240000 });
+    await page.waitForFunction(() => window.__demo.instances.pick.debug.score.ok >= 1, null, { timeout: EPISODE_TIMEOUT });
     const sc = await page.evaluate(() => window.__demo.instances.pick.debug.score);
-    check(sc.ok >= 1, `Diffusion Policy puts the red cube in the bowl from pixels (score ${sc.ok}/${sc.n})`);
+    check(sc.ok >= 1, `Diffusion Policy puts the red cube in the bowl from pixels (${sc.ok} success in ${sc.n} episode(s))`);
     const thumbs = await page.evaluate(() => ['pick-front', 'pick-wrist'].map((id) => {
       const c = document.getElementById(id).getContext('2d').getImageData(0, 0, 64, 64).data;
       let s = 0; for (let i = 0; i < c.length; i += 4) s += c[i] + c[i + 1] + c[i + 2];
@@ -125,6 +130,7 @@ async function main() {
     await page.waitForFunction(() => window.__demo.instances.pick.debug.policy?.inputs.includes('object_state'), null, { timeout: 60000 });
     await page.waitForFunction(() => window.__demo.instances.pick.debug.score.ok >= 1, null, { timeout: 120000 });
     check(true, 'switching to the placeholder works and it completes an episode');
+    check(requests.filter(isPlaceholder).length === 1, 'selecting the placeholder downloads it, once');
 
     if (fs.existsSync(DP_ONNX)) {
       console.log(`Policy slot · ${path.basename(DP_ONNX)} (diffusion-pick export)`);
@@ -226,7 +232,7 @@ async function main() {
     watch(m, 'mobile', problems);
     await m.goto(base);
     await m.waitForFunction(() => window.__demo?.instances?.pick?.debug.policy, null, { timeout: 120000 });
-    await m.waitForFunction(() => window.__demo.instances.pick.debug.env.cubePos()[2] > 0.08, null, { timeout: 240000, polling: 50 });
+    await m.waitForFunction(() => window.__demo.instances.pick.debug.env.cubePos()[2] > 0.08, null, { timeout: EPISODE_TIMEOUT, polling: 50 });
     const overflow = await m.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     check(overflow <= 0, `no horizontal scroll on pick-and-place (overflow ${overflow}px)`);
     await shot(m, 'mobile-pick.jpg');

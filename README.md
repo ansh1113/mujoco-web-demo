@@ -55,7 +55,9 @@ MuJoCo and onnxruntime builds are used.
 * **Loading.** The default policy is the page's largest download (27 MB). When the page opens on this tab,
   `js/main.js` starts that download first, in parallel with MuJoCo's WASM, and the overlay shows
   "Loading policy (27 MB)… x / 27 MB" (`js/franka/fetch-model.js`). onnxruntime's own WASM is warmed up at the
-  same time, so the policy starts as soon as its bytes arrive. Visitors who open `#balance` don't download it.
+  same time with an 87-byte model embedded in `js/franka/app.js`, so the policy starts as soon as its bytes arrive.
+  Visitors who open `#balance` don't download it, and the other policies (including the placeholder) are only
+  downloaded when selected in the picker.
   Switching models in the picker shows the same progress in the status chip.
 * **Observations.** Proprio is read from MuJoCo. `front_rgb` and `wrist_rgb` are 64×64 renders of the MJCF cameras.
   They are read back asynchronously into the uint8 `[1, To, 3, 64, 64]` layout diffusion-pick uses, and shown in
@@ -212,7 +214,8 @@ This runs `tests/e2e.cjs` with Playwright and headless Chromium, using SwiftShad
   once, starting together with MuJoCo's WASM;
 * checks that the default is the image-based Diffusion Policy, waits for it to put the cube in the bowl, and checks
   that the 64×64 policy views render;
-* switches the picker to the placeholder and waits for it to complete an episode;
+* checks that `placeholder_pick.onnx` is not downloaded on page load, then selects it in the picker, waits for it
+  to complete an episode and checks that it was downloaded once;
 * loads diffusion-pick's `dp_reduced.onnx` through the file input and checks that it runs 20 control steps
   without errors;
 * switches to the balance tab (which sets `#balance` and stops the pick tab's loop), checks that the G1 stands,
@@ -223,7 +226,7 @@ This runs `tests/e2e.cjs` with Playwright and headless Chromium, using SwiftShad
 * rewrites the screenshots in `docs/screenshots/`.
 
 Set `SCREENSHOTS=0` to keep the screenshots, or `DPICK_ONNX=…` to point it at another export. On the last run all
-30 checks passed with 0 console messages.
+32 checks passed with 0 console messages.
 
 ```bash
 npm run bench

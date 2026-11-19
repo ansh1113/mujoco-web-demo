@@ -12,6 +12,11 @@ const $ = (id) => document.getElementById(id);
 const MAX_STEPS = 200;     // 20 s at 10 Hz, as in diffusion-pick's evaluation
 const PAUSE_AFTER = 1600;  // ms to show the outcome before the next episode
 
+// A one-node ONNX graph (Identity, float32[1] -> float32[1], opset 17), used only to initialise
+// onnxruntime early. Generated with onnx.helper: make_graph([make_node("Identity", ["x"], ["y"])], ...).
+const WARMUP_ONNX_B64 =
+  'CAgSD211am9jby13ZWItZGVtbzo8ChAKAXgSAXkiCElkZW50aXR5EgZ3YXJtdXBaDwoBeBIKCggIARIECgIIAWIPCgF5EgoKCAgBEgQKAggBQgQKABAR';
+
 async function loadOrt() {
   const ort = await import('../../vendor/ort/ort.wasm.min.mjs');
   ort.env.wasm.wasmPaths = new URL('../../vendor/ort/', import.meta.url).href;
@@ -19,10 +24,10 @@ async function loadOrt() {
   ort.env.wasm.proxy = false;
   ort.env.logLevel = 'error';
   // onnxruntime fetches and compiles its own 12 MB WASM on the first session. Create a throwaway
-  // session from the tiny placeholder now, so that happens while the 27 MB policy is downloading.
+  // session now from an embedded 87-byte model, so that happens while the 27 MB policy is
+  // downloading, without fetching any model file.
   try {
-    const res = await fetch(new URL('../../models/placeholder_pick.onnx', import.meta.url));
-    const warm = await ort.InferenceSession.create(new Uint8Array(await res.arrayBuffer()));
+    const warm = await ort.InferenceSession.create(Uint8Array.from(atob(WARMUP_ONNX_B64), (c) => c.charCodeAt(0)));
     await warm.release();
   } catch { /* the real session create will surface any problem */ }
   return ort;
